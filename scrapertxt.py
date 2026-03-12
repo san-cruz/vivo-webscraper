@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict
 import re
 import os
+from pathlib import Path
 from playwright.sync_api import sync_playwright, Page, Locator
 
 
@@ -14,10 +15,13 @@ from playwright.sync_api import sync_playwright, Page, Locator
 # ─────────────────────────────────────────────
 
 URL = (
-    "https://vivo.com.br/para-voce/produtos-e-servicos/servicos-digitais/ativacao-servicos-digitais/ativacao-apple-music"
+    "https://vivo.com.br/para-voce/produtos-e-servicos/servicos-digitais/"
+    "ativacao-servicos-digitais/ativacao-apple-music"
 )
 
-OUTPUT_FILE = "apple-music-2.txt"
+# Pasta de saída relativa ao script
+OUTPUT_DIR = Path(__file__).parent / "output"
+OUTPUT_FILE = "apple-music.txt"
 
 
 # ─────────────────────────────────────────────
@@ -32,8 +36,8 @@ class BaseInfoScraperPlaywright(ABC):
 
     def fetch_page(self, page: Page) -> None:
         try:
-            page.goto(self.url, wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_load_state("networkidle", timeout=60000)
+            page.goto(self.url, wait_until="domcontentloaded", timeout=60_000)
+            page.wait_for_load_state("networkidle", timeout=60_000)
         except Exception as e:
             print(f"❌ Erro ao buscar página: {e}")
             raise
@@ -67,173 +71,244 @@ class BaseInfoScraperPlaywright(ABC):
 
 
 # ─────────────────────────────────────────────
+# HELPERS
+# ─────────────────────────────────────────────
+
+def clean_text(text: str) -> str:
+    """Remove espaços extras e caracteres especiais comuns."""
+    if not text:
+        return ""
+    text = text.replace("\xa0", " ").replace("&nbsp;", " ").replace("&nbsp", " ")
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def normalize_url(href: str) -> str:
+    """Garante que URLs relativas se tornem absolutas."""
+    if not href:
+        return ""
+    href = href.strip()
+    if href.startswith("/"):
+        return f"https://www.vivo.com.br{href}"
+    if not href.startswith("http"):
+        return f"https://{href}"
+    return href
+
+
+def text_or_empty(locator: Locator) -> str:
+    """Retorna inner_text do primeiro match ou string vazia."""
+    try:
+        if locator.count() > 0:
+            return clean_text(locator.first.inner_text())
+    except Exception:
+        pass
+    return ""
+
+
+def clean_step_title(raw: str) -> str:
+    """
+    Remove prefixo numérico e traço inicial de títulos de passo.
+    Ex.: '1 - Baixe o app' → 'Baixe o app'
+         '-Baixe o app'    → 'Baixe o app'
+    """
+    text = re.sub(r"^\d+\s*[-–]\s*", "", raw).strip()
+    text = re.sub(r"^[-–]\s*", "", text).strip()
+    return text
+
+
+# ─────────────────────────────────────────────
 # SCRAPER
 # ─────────────────────────────────────────────
 
 class AtivacaoAppleMusicScraper(BaseInfoScraperPlaywright):
 
-    def _clean_text(self, text: str) -> str:
-        if not text:
-            return ""
-        text = text.replace("\xa0", " ").replace("&nbsp;", " ").replace("&nbsp", " ")
-        text = re.sub(r"\s+", " ", text).strip()
-        return text
-
-    def _normalize_url(self, href: str) -> str:
-        if not href:
-            return ""
-        if href.startswith("/"):
-            return f"https://www.vivo.com.br{href}"
-        if not href.startswith("http"):
-            return f"https://{href}"
-        return href
-
-    def _text_or_empty(self, locator: Locator) -> str:
-        try:
-            if locator.count() > 0:
-                return self._clean_text(locator.first.inner_text())
-        except Exception:
-            pass
-        return ""
-
-    def _find_heading(self, page: Page, tag: str, contains_text: str) -> Locator:
-        # Aceita <h2> e também <p class="h2"> (comum em páginas Vivo)
-        return page.locator(f"{tag}, p.{tag}").filter(has_text=contains_text).first
-
+    # ------------------------------------------------------------------
+    # Extração de rich-text: percorre filhos diretos para evitar duplicatas
+    # ------------------------------------------------------------------
     def _extract_richtext_blocks(self, container: Locator) -> str:
-        partes = []
-        blocos = container.locator("p, li")
-        for i in range(blocos.count()):
-            bloco = blocos.nth(i)
-            texto = self._clean_text(bloco.inner_text())
-            links = bloco.locator("a")
-            if links.count() > 0:
-                for j in range(links.count()):
-                    link = links.nth(j)
-                    link_text = self._clean_text(link.inner_text())
-                    href = self._normalize_url(link.get_attribute("href") or "")
-                    if link_text and href and href not in texto:
-                        texto = texto.replace(link_text, f"{link_text} ({href})")
-            if texto:
-                partes.append(texto)
-        return self._clean_text(" ".join(partes))
+        """
+        Extrai texto de um bloco rich-text evitando duplicações causadas por
+        selecionar tanto o <ul>/<ol> quanto seus <li> filhos.
+        Estratégia: percorre apenas os filhos DIRETOS e ignora elementos
+        que sejam containers de outros já processados.
+        """
+        parts: list[str] = []
 
+        # Seleciona apenas filhos diretos relevantes, excluindo ul/ol
+        # para não duplicar o texto dos <li>
+        children = container.locator("> p, > li, > ul > li, > ol > li, > h3, > h4")
+        seen: set[str] = set()
+
+        for i in range(children.count()):
+            child = children.nth(i)
+            raw = clean_text(child.inner_text())
+            if not raw or raw in seen:
+                continue
+            seen.add(raw)
+
+            # Enriquece com links inline
+            links = child.locator("a")
+            enriched = raw
+            for j in range(links.count()):
+                link = links.nth(j)
+                link_text = clean_text(link.inner_text())
+                href = normalize_url(link.get_attribute("href") or "")
+                if link_text and href and href not in enriched:
+                    enriched = enriched.replace(link_text, f"{link_text} ({href})", 1)
+
+            parts.append(enriched)
+
+        return " ".join(parts)
+
+    # ------------------------------------------------------------------
+    # Localiza heading (h1–h4 ou <p class="h2">) por texto parcial
+    # ------------------------------------------------------------------
+    def _find_heading(self, page: Page, tag: str, contains_text: str) -> Locator:
+        # Tenta tag nativa primeiro; depois p com classe equivalente
+        native = page.locator(tag).filter(has_text=contains_text).first
+        if native.count() > 0:
+            return native
+        return page.locator(f"p.{tag}").filter(has_text=contains_text).first
+
+    # ------------------------------------------------------------------
+    # Extração principal
+    # ------------------------------------------------------------------
     def extract_data(self, page: Page) -> Dict[str, Any]:
         data: Dict[str, Any] = {}
 
         print("📦 Extraindo informações Ativação Apple Music...\n")
 
-        # 1. Título principal
+        # 1. Título principal ────────────────────────────────────────────
         print("   🎯 Extraindo título principal...")
-        main_title = self._find_heading(page, "h1", "Saiba como ativar")
+        main_title = page.locator("h1").filter(has_text="Saiba como ativar").first
         if main_title.count() > 0:
-            data["titulo"] = self._clean_text(main_title.inner_text())
+            data["titulo"] = clean_text(main_title.inner_text())
             print(f"      ✓ {data['titulo']}")
 
-        # 2. Tabs de ativação
+        # 2. Tabs de ativação ────────────────────────────────────────────
         print("   🎯 Extraindo tabs de ativação...")
-        tabs_ativacao = []
+        tabs_ativacao: list[dict] = []
         tabs_components = page.locator(".tabs-component")
 
         if tabs_components.count() > 0:
             tab_contents = tabs_components.nth(0).locator(".tabs__content-item")
+
             for i in range(tab_contents.count()):
                 tab_content = tab_contents.nth(i)
-                tab_name = self._clean_text(tab_content.get_attribute("data-tab-name") or "")
-                passos = []
+                tab_name = clean_text(tab_content.get_attribute("data-tab-name") or "")
+                passos: list[dict] = []
                 steps = tab_content.locator(".steps-feature")
+
                 for j in range(steps.count()):
                     step = steps.nth(j)
-                    numero = self._text_or_empty(step.locator(".step-number span"))
-                    titulo_raw = self._text_or_empty(step.locator(".step-text-title"))
-                    descricao = self._text_or_empty(step.locator(".step-text-description"))
-                    if not numero or numero.isspace():
-                        numero = str(j + 1)
-                    titulo = re.sub(r"^\d+\s*-\s*", "", titulo_raw).strip()
-                    botoes = []
+
+                    # Número do passo
+                    numero_raw = text_or_empty(step.locator(".step-number span"))
+                    numero = clean_text(numero_raw) if numero_raw else str(j + 1)
+
+                    # Título — remove prefixo numérico/traço
+                    titulo_raw = text_or_empty(step.locator(".step-text-title"))
+                    titulo = clean_step_title(titulo_raw)
+
+                    # Descrição — apenas o bloco dedicado, sem capturar botões
+                    descricao = text_or_empty(step.locator(".step-text-description"))
+
+                    # Botões de ação
+                    botoes: list[dict] = []
                     botao_elems = step.locator(".step-buttons a")
+                    btn_hrefs: set[str] = set()
                     for k in range(botao_elems.count()):
                         botao = botao_elems.nth(k)
-                        botao_text = self._clean_text(botao.inner_text())
-                        botao_link = self._normalize_url(botao.get_attribute("href") or "")
-                        if botao_text and botao_link:
-                            botoes.append({"texto": botao_text, "link": botao_link})
+                        btn_text = clean_text(botao.inner_text())
+                        btn_href = normalize_url(botao.get_attribute("href") or "")
+                        if btn_text and btn_href and btn_href not in btn_hrefs:
+                            btn_hrefs.add(btn_href)
+                            botoes.append({"texto": btn_text, "link": btn_href})
+
                     passos.append({
                         "numero": numero,
                         "titulo": titulo,
                         "descricao": descricao,
-                        "botoes": botoes
+                        "botoes": botoes,
                     })
+
                 tabs_ativacao.append({"nome": tab_name, "passos": passos})
                 print(f"      ✓ {tab_name} ({len(passos)} passos)")
 
         data["tabs_ativacao"] = tabs_ativacao
 
-        # 3. Mudanças de pagamento
+        # 3. Mudanças de pagamento ───────────────────────────────────────
         print("   🎯 Extraindo mudanças de pagamento...")
         pagamento_title = self._find_heading(page, "h2", "Sobre mudanças dos meios de pagamento")
         if pagamento_title.count() > 0:
             comunicados = page.locator(".comunicados .richtext").first
-            texto_final = self._extract_richtext_blocks(comunicados) if comunicados.count() > 0 else ""
+            texto_pag = (
+                self._extract_richtext_blocks(comunicados) if comunicados.count() > 0 else ""
+            )
             data["mudancas_pagamento"] = {
-                "titulo": self._clean_text(pagamento_title.inner_text()),
-                "texto": texto_final
+                "titulo": clean_text(pagamento_title.inner_text()),
+                "texto": texto_pag,
             }
             print("      ✓ Mudanças de pagamento")
 
-        # 4. Vantagens da assinatura
+        # 4. Vantagens da assinatura ─────────────────────────────────────
         print("   🎯 Extraindo vantagens da assinatura...")
         vantagens_section = page.locator(".photo-text-icon-component").first
         if vantagens_section.count() > 0:
-            titulo_vant = self._text_or_empty(vantagens_section.locator(".teaser__title"))
-            vantagens = []
+            titulo_vant = text_or_empty(vantagens_section.locator(".teaser__title"))
+            vantagens: list[str] = []
             icones = vantagens_section.locator(".teaser__icons__item")
             for i in range(icones.count()):
-                texto = self._text_or_empty(icones.nth(i).locator(".teaser__icons__text"))
+                texto = text_or_empty(icones.nth(i).locator(".teaser__icons__text"))
                 if texto:
                     vantagens.append(texto)
             data["vantagens_assinatura"] = {"titulo": titulo_vant, "vantagens": vantagens}
             print(f"      ✓ {len(vantagens)} vantagens")
 
-        # 5. FAQ (sempre pega o segundo .tabs-component, independente do título)
+        # 5. FAQ ─────────────────────────────────────────────────────────
         print("   🎯 Extraindo FAQ...")
         faq_title = self._find_heading(page, "h2", "Tire suas dúvidas")
-        tabs_faq = []
+        tabs_faq: list[dict] = []
 
-        faq_tabs_container = tabs_components.nth(1) if tabs_components.count() > 1 else None
-
-        if faq_tabs_container:
-            faq_tab_contents = faq_tabs_container.locator(".tabs__content-item")
+        faq_container = tabs_components.nth(1) if tabs_components.count() > 1 else None
+        if faq_container:
+            faq_tab_contents = faq_container.locator(".tabs__content-item")
             for i in range(faq_tab_contents.count()):
                 tab_content = faq_tab_contents.nth(i)
-                tab_name = self._clean_text(tab_content.get_attribute("data-tab-name") or "")
-                perguntas = []
+                tab_name = clean_text(tab_content.get_attribute("data-tab-name") or "")
+                perguntas: list[dict] = []
                 accordion_items = tab_content.locator(".accordion__item")
+
                 for j in range(accordion_items.count()):
                     item = accordion_items.nth(j)
-                    pergunta = self._text_or_empty(item.locator(".accordion__item__label"))
+                    pergunta = text_or_empty(item.locator(".accordion__item__label"))
                     richtext = item.locator(".richtext").first
-                    resposta = self._extract_richtext_blocks(richtext) if richtext.count() > 0 else ""
-                    perguntas.append({"pergunta": pergunta, "resposta": resposta})
+                    resposta = (
+                        self._extract_richtext_blocks(richtext) if richtext.count() > 0 else ""
+                    )
+                    if pergunta:
+                        perguntas.append({"pergunta": pergunta, "resposta": resposta})
+
                 tabs_faq.append({"nome": tab_name, "perguntas": perguntas})
                 print(f"      ✓ {tab_name} ({len(perguntas)} perguntas)")
 
         data["faq"] = {
-            "titulo": self._clean_text(faq_title.inner_text()) if faq_title.count() > 0 else "Tire suas dúvidas",
-            "tabs": tabs_faq
+            "titulo": (
+                clean_text(faq_title.inner_text()) if faq_title.count() > 0 else "Tire suas dúvidas"
+            ),
+            "tabs": tabs_faq,
         }
 
-        # 6. Tutorial final
+        # 6. Tutorial final ──────────────────────────────────────────────
         print("   🎯 Extraindo tutorial...")
         tutorial = page.locator(".end-of-page-component").first
         if tutorial.count() > 0:
             link_elem = tutorial.locator("a.end-page__item").first
             if link_elem.count() > 0:
                 data["tutorial"] = {
-                    "descricao": self._text_or_empty(link_elem.locator("p.body")),
-                    "descricao_adicional": self._text_or_empty(link_elem.locator("p.body-2")),
-                    "label": self._text_or_empty(link_elem.locator(".links-")),
-                    "link": self._normalize_url(link_elem.get_attribute("href") or "")
+                    "descricao": text_or_empty(link_elem.locator("p.body")),
+                    "descricao_adicional": text_or_empty(link_elem.locator("p.body-2")),
+                    "link": normalize_url(link_elem.get_attribute("href") or ""),
                 }
                 print("      ✓ Tutorial")
 
@@ -243,47 +318,61 @@ class AtivacaoAppleMusicScraper(BaseInfoScraperPlaywright):
 
         return data
 
+    # ------------------------------------------------------------------
+    # Formatação do .txt
+    # ------------------------------------------------------------------
     def format_output(self, data: Dict[str, Any]) -> str:
-        paragraphs = ["SEÇÃO: Ativação Apple Music\n"]
+        sections: list[str] = ["SEÇÃO: Ativação Apple Music\n"]
 
+        # Título
         if data.get("titulo"):
-            paragraphs.append(data["titulo"])
+            sections.append(data["titulo"])
 
+        # Tabs de ativação
         for tab in data.get("tabs_ativacao", []):
-            tab_text = f"{tab['nome']}.\nPassos:"
+            lines = [f"{tab['nome']}.", "Passos:"]
             for passo in tab["passos"]:
-                tab_text += f"\n{passo['numero']}. {passo['titulo']}"
+                # Linha principal do passo
+                line = f"{passo['numero']}. {passo['titulo']}"
                 if passo["descricao"]:
-                    tab_text += f" - {passo['descricao']}"
+                    line += f" - {passo['descricao']}"
+                lines.append(line)
+                # Botões em linha separada, indentados
                 for botao in passo["botoes"]:
-                    tab_text += f" Link: {botao['link']}"
-            paragraphs.append(tab_text)
+                    lines.append(f"   Link: {botao['link']}")
+            sections.append("\n".join(lines))
 
+        # Mudanças de pagamento
         if data.get("mudancas_pagamento"):
             mp = data["mudancas_pagamento"]
-            paragraphs.append(f"{mp['titulo']}. {mp['texto']}")
+            sections.append(f"{mp['titulo']}. {mp['texto']}")
 
+        # Vantagens
         if data.get("vantagens_assinatura"):
             vant = data["vantagens_assinatura"]
-            vant_text = f"{vant['titulo']}."
+            lines = [f"{vant['titulo']}."]
             for v in vant["vantagens"]:
-                vant_text += f"\n- {v}"
-            paragraphs.append(vant_text)
+                lines.append(f"- {v}")
+            sections.append("\n".join(lines))
 
+        # FAQ
         if data.get("faq"):
             faq = data["faq"]
-            faq_text = f"{faq['titulo']}."
+            lines = [f"{faq['titulo']}."]
             for tab in faq["tabs"]:
-                faq_text += f"\n\n{tab['nome']}:"
-                for i, p in enumerate(tab["perguntas"], 1):
-                    faq_text += f"\n{i}. {p['pergunta']}\n{p['resposta']}"
-            paragraphs.append(faq_text)
+                lines.append(f"\n{tab['nome']}:")
+                for idx, p in enumerate(tab["perguntas"], 1):
+                    lines.append(f"{idx}. {p['pergunta']}")
+                    lines.append(p["resposta"])
+            sections.append("\n".join(lines))
 
+        # Tutorial
         if data.get("tutorial"):
             tut = data["tutorial"]
-            paragraphs.append(f"{tut['descricao']} {tut['descricao_adicional']}. Link: {tut['link']}")
+            desc = " ".join(filter(None, [tut["descricao"], tut["descricao_adicional"]]))
+            sections.append(f"{desc}. Link: {tut['link']}")
 
-        return "\n\n".join(paragraphs)
+        return "\n\n".join(sections)
 
     def scrape(self) -> str:
         print("🔍 Buscando página Ativação Apple Music...")
@@ -295,11 +384,11 @@ class AtivacaoAppleMusicScraper(BaseInfoScraperPlaywright):
 # ─────────────────────────────────────────────
 
 if __name__ == "__main__":
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = OUTPUT_DIR / OUTPUT_FILE
+
     scraper = AtivacaoAppleMusicScraper(URL, headless=True)
     resultado = scraper.scrape()
 
-    output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), OUTPUT_FILE)
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write(resultado)
-
+    output_path.write_text(resultado, encoding="utf-8")
     print(f"💾 Arquivo salvo em: {output_path}")
