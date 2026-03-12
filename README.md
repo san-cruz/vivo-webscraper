@@ -43,7 +43,7 @@ playwright install chromium
 1. Coloque seus arquivos `.html` ou `.htm` dentro da pasta `input/`
 2. Rode o script:
 ```bash
-python scraper.py
+python scrapertxt.py
 ```
 3. Os resultados aparecerão na pasta `output/`
 
