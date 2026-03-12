@@ -84,7 +84,6 @@ def _inline_links(tag: Tag) -> str:
     """
     Reconstrói o texto de uma tag, inserindo ' Link: <href>' logo após
     cada âncora que tiver href, igual ao padrão do documento de referência.
-    Evita duplicação: itera sobre filhos diretos e desce manualmente.
     """
     def _render(node) -> str:
         if isinstance(node, NavigableString):
@@ -100,109 +99,365 @@ def _inline_links(tag: Tag) -> str:
     return clean_text(_render(tag))
 
 
+# ──────────────────────────────────────────────
+# Extratores especializados para componentes Vivo
+# ──────────────────────────────────────────────
+
+def extract_steps_feature(container: Tag) -> list[dict]:
+    """
+    Extrai passos do componente .steps-feature da Vivo.
+    Cada passo tem um título (.step-text-title) e opcionalmente
+    uma descrição (.step-text-description) e botões com links.
+    Retorna lista de strings no formato "Título - Descrição Link: url"
+    """
+    items = []
+    for step_div in container.find_all("div", class_="step"):
+        # Título do passo
+        title_tag = step_div.find(class_="step-text-title")
+        if not title_tag:
+            continue
+
+        # Remove o span oculto de número dentro do título
+        for hidden in title_tag.find_all("span", class_="hide-text"):
+            hidden.decompose()
+
+        title_text = clean_text(title_tag.get_text())
+
+        # Descrição
+        desc_tag = step_div.find(class_="step-text-description")
+        desc_text = clean_text(desc_tag.get_text()) if desc_tag else ""
+
+        # Links dos botões do passo (ex: Play Store, App Store, App Vivo)
+        # Pega apenas links hide-mobile para evitar duplicação
+        step_links = []
+        btn_div = step_div.find(class_="step-buttons")
+        if btn_div:
+            for a in btn_div.find_all("a", href=True):
+                # Ignora versão mobile duplicada
+                classes = a.get("class", [])
+                if "hide-desktop" in classes:
+                    continue
+                href = a["href"].strip()
+                if href and not href.startswith("#"):
+                    step_links.append(href)
+
+        # Monta o texto do passo
+        # Título e descrição são separados por " - "
+        # Links são acrescentados com " Link: " (sem traço)
+        base_parts = [title_text]
+        if desc_text:
+            base_parts.append(desc_text)
+        base = " - ".join(base_parts)
+
+        seen_links = set()
+        for href in step_links:
+            if href not in seen_links:
+                base += f" Link: {href}"
+                seen_links.add(href)
+
+        items.append(base)
+
+    return items
+
+
+def extract_accordion_faqs(container: Tag) -> list[dict]:
+    """
+    Extrai FAQs de componentes .accordion da Vivo.
+    Cada item tem um label (pergunta) e um container (resposta).
+    """
+    faq_items = []
+    for li in container.find_all("li", class_="accordion__item"):
+        # Pergunta: botão label
+        btn = li.find("button", class_="accordion__item__label")
+        if not btn:
+            continue
+        # Remove o span de arrow
+        for span in btn.find_all("span", class_="accordion__item__attach"):
+            span.decompose()
+        question = clean_text(btn.get_text())
+
+        # Resposta: conteúdo do container
+        content_div = li.find(class_="accordion__item__container")
+        answer = _inline_links(content_div) if content_div else ""
+
+        faq_items.append({"q": question, "a": answer})
+
+    return faq_items
+
+
+def extract_tabs(soup: BeautifulSoup) -> list[dict]:
+    """
+    Extrai componentes de abas (.tabs-component) da Vivo.
+    Retorna lista de seções com título e blocos de conteúdo,
+    processando cada aba como uma sub-seção.
+    """
+    sections = []
+
+    for tabs_component in soup.find_all("div", class_="tabs-component"):
+        tab_contents = tabs_component.find_all("div", class_="tabs__content-item")
+
+        for tab_content in tab_contents:
+            tab_name_attr = tab_content.get("data-tab-name", "")
+            if not tab_name_attr:
+                continue
+
+            blocks = []
+
+            # Verifica se tem steps-feature (passos do tutorial)
+            steps_containers = tab_content.find_all(
+                "div", attrs={"data-controller": "steps-feature"}
+            )
+            for steps_container in steps_containers:
+                items = extract_steps_feature(steps_container)
+                if items:
+                    blocks.append({"type": "ordered", "items": items})
+
+            # Verifica se tem accordion (FAQs)
+            accordion_containers = tab_content.find_all(
+                "ul", class_="accordion"
+            )
+            for accordion in accordion_containers:
+                faq_items = extract_accordion_faqs(accordion)
+                if faq_items:
+                    blocks.append({"type": "faq", "items": faq_items})
+
+            if blocks:
+                sections.append({
+                    "title": tab_name_attr + ".",
+                    "blocks": blocks
+                })
+
+    return sections
+
+
+def extract_teaser_icons(soup: BeautifulSoup) -> list[dict]:
+    """
+    Extrai itens de ícone do componente .teaser__icons da Vivo.
+    Retorna seções com título (teaser__title) e lista de itens.
+    """
+    sections = []
+    for teaser in soup.find_all("div", class_="teaser"):
+        title_tag = teaser.find(class_="teaser__title")
+        if not title_tag:
+            continue
+        title = clean_text(title_tag.get_text())
+
+        items = []
+        for icon_item in teaser.find_all(class_="teaser__icons__text"):
+            text = clean_text(icon_item.get_text())
+            if text:
+                items.append(text)
+
+        if items:
+            sections.append({
+                "title": title + ".",
+                "blocks": [{"type": "unordered", "items": items}]
+            })
+
+    return sections
+
+
+def extract_richtext_blocks(soup: BeautifulSoup) -> list[dict]:
+    """
+    Extrai blocos de richtext (.comunicados) que não estão dentro de abas.
+    """
+    sections = []
+    for rt_div in soup.find_all("div", class_="comunicados"):
+        # Verifica se está dentro de uma aba (já tratada)
+        if rt_div.find_parent("div", class_="tabs__content-item"):
+            continue
+        paras = []
+        for p in rt_div.find_all("p"):
+            text = _inline_links(p)
+            if text:
+                paras.append({"type": "paragraph", "text": text})
+        if paras:
+            sections.append({"title": "", "blocks": paras})
+    return sections
+
+
+def extract_end_page(soup: BeautifulSoup) -> list[dict]:
+    """
+    Extrai o componente de fim de página (.end-of-page-component).
+    """
+    sections = []
+    for end in soup.find_all("div", class_="end-of-page-component"):
+        for a in end.find_all("a", href=True):
+            href = a["href"].strip()
+            if href.startswith("#"):
+                continue
+            # Pega todo o texto do link
+            text_parts = []
+            for p in a.find_all("p"):
+                t = clean_text(p.get_text())
+                if t:
+                    text_parts.append(t)
+            if text_parts:
+                full_text = " ".join(text_parts) + f" Link: {href}"
+                sections.append({
+                    "title": "",
+                    "blocks": [{"type": "paragraph", "text": full_text}]
+                })
+    return sections
+
+
+def extract_page_title_section(soup: BeautifulSoup) -> list[dict]:
+    """
+    Extrai o título principal (h1) e a descrição imediata da página.
+    """
+    sections = []
+    h1 = soup.find("h1")
+    if not h1:
+        return sections
+
+    title_text = clean_text(h1.get_text())
+    blocks = []
+
+    # Busca parágrafos próximos ao h1 (irmãos ou dentro do mesmo container)
+    container = h1.find_parent("div", class_="container")
+    if container:
+        # Procura richtext próximo ao title component
+        title_comp = h1.find_parent(class_="title")
+        if title_comp:
+            next_sib = title_comp.find_next_sibling()
+            # Pula spacers
+            while next_sib and "spacer" in next_sib.get("class", []):
+                next_sib = next_sib.find_next_sibling()
+            # Se não for tabs, pega parágrafos
+            if next_sib and "tabs-component" not in next_sib.get("class", []):
+                for p in next_sib.find_all("p"):
+                    text = _inline_links(p)
+                    if text:
+                        blocks.append({"type": "paragraph", "text": text})
+
+    sections.append({"title": title_text, "blocks": blocks})
+    return sections
+
+
+# ──────────────────────────────────────────────
+# Pipeline de extração principal
+# ──────────────────────────────────────────────
+
 def extract_sections(soup: BeautifulSoup) -> list[dict]:
     """
-    Percorre o DOM e agrupa o conteúdo em seções estruturadas.
-    Cada seção tem:
-      - title  : texto do heading (h1/h2/h3/h4)
-      - blocks : lista de dicts com type e conteúdo
-        type "paragraph"  → {"type": "paragraph", "text": "..."}
-        type "ordered"    → {"type": "ordered",   "items": ["...", ...]}
-        type "unordered"  → {"type": "unordered", "items": ["...", ...]}
-        type "faq"        → {"type": "faq",       "items": [{"q":..,"a":..}, ...]}
+    Orquestra a extração de todas as seções da página seguindo a ordem do DOM.
+    Percorre os nós de alto nível e delega para extratores especializados.
     """
-    # Tags que definem uma nova seção
-    HEADING_TAGS = {"h1", "h2", "h3", "h4"}
-    # Tags de conteúdo que vamos processar
-    CONTENT_TAGS = {"p", "ul", "ol", "dl", "div"}
+    sections = []
 
-    sections: list[dict] = []
-    current_section: dict | None = None
+    # 1. Título principal (h1)
+    sections.extend(extract_page_title_section(soup))
 
-    def flush_section():
-        if current_section and current_section["blocks"]:
-            sections.append(current_section)
+    # 2. Percorre o DOM em ordem para capturar tabs, teasers, h2 e end-page
+    #    na mesma sequência em que aparecem na página.
+    visited_tabs: set[int] = set()
+    visited_teasers: set[int] = set()
+    visited_h2: set[int] = set()
+    visited_end: set[int] = set()
 
-    def new_section(title: str):
-        nonlocal current_section
-        flush_section()
-        current_section = {"title": title, "blocks": []}
-
-    def add_block(block: dict):
-        nonlocal current_section
-        if current_section is None:
-            current_section = {"title": "", "blocks": []}
-        current_section["blocks"].append(block)
-
-    # Detecta se uma <ul>/<ol> parece ser um FAQ:
-    # cada <li> começa com um número seguido de ponto ou parêntese.
-    def looks_like_faq(items: list[str]) -> bool:
-        return sum(1 for it in items if re.match(r"^\d+[\.\)]", it)) >= len(items) // 2
-
-    # Percorre apenas os filhos diretos de body ou do primeiro div principal
-    body = soup.body or soup
-    visited: set[int] = set()
-
-    def process_node(node):
+    def walk(node: Tag):
         if not isinstance(node, Tag):
             return
-        if id(node) in visited:
-            return
-        visited.add(id(node))
 
-        tag = node.name
+        classes = node.get("class", [])
 
-        if tag in HEADING_TAGS:
-            new_section(clean_text(node.get_text()))
-            return
+        # tabs-component → processa todas as abas internas em ordem
+        if "tabs-component" in classes and id(node) not in visited_tabs:
+            visited_tabs.add(id(node))
+            for tab_content in node.find_all("div", class_="tabs__content-item"):
+                tab_name = tab_content.get("data-tab-name", "")
+                if not tab_name:
+                    continue
+                blocks = []
+                # Passos (steps-feature)
+                for sc in tab_content.find_all(
+                    "div", attrs={"data-controller": "steps-feature"}
+                ):
+                    items = extract_steps_feature(sc)
+                    if items:
+                        blocks.append({"type": "ordered", "items": items})
+                # Accordions (FAQ)
+                for acc in tab_content.find_all("ul", class_="accordion"):
+                    faq_items = extract_accordion_faqs(acc)
+                    if faq_items:
+                        blocks.append({"type": "faq", "items": faq_items})
+                if blocks:
+                    sections.append({"title": tab_name + ".", "blocks": blocks})
+            return  # não desce mais
 
-        if tag == "p":
-            text = _inline_links(node)
-            if text:
-                add_block({"type": "paragraph", "text": text})
-            return
-
-        if tag in ("ul", "ol"):
-            items = []
-            for li in node.find_all("li", recursive=False):
-                items.append(_inline_links(li))
-            items = [it for it in items if it]
-            if not items:
+        # teaser com ícones
+        if "teaser" in classes and id(node) not in visited_teasers:
+            title_tag = node.find(class_="teaser__title")
+            if title_tag:
+                visited_teasers.add(id(node))
+                title = clean_text(title_tag.get_text()) + "."
+                items = [
+                    clean_text(i.get_text())
+                    for i in node.find_all(class_="teaser__icons__text")
+                    if clean_text(i.get_text())
+                ]
+                if items:
+                    sections.append({"title": title, "blocks": [
+                        {"type": "unordered", "items": items}
+                    ]})
                 return
-            # Tenta detectar FAQ (perguntas numeradas dentro de listas)
-            if looks_like_faq(items):
-                faq_items = []
-                for it in items:
-                    # Remove prefixo numérico "1. " ou "1) "
-                    it_clean = re.sub(r"^\d+[\.)\s]+", "", it).strip()
-                    # Divide em pergunta (até o "?") e resposta (restante)
-                    m = re.match(r"^(.+?\?)\s+(.+)$", it_clean, re.DOTALL)
-                    if m:
-                        q = clean_text(m.group(1))
-                        a = clean_text(m.group(2))
-                    else:
-                        q = clean_text(it_clean)
-                        a = ""
-                    faq_items.append({"q": q, "a": a})
-                add_block({"type": "faq", "items": faq_items})
-            else:
-                list_type = "ordered" if tag == "ol" else "unordered"
-                add_block({"type": list_type, "items": items})
+
+        # h2 avulso (fora de abas e teasers)
+        if node.name in ("h2",) and id(node) not in visited_h2:
+            if not node.find_parent("div", class_="tabs__content-item") and \
+               not node.find_parent("div", class_="teaser"):
+                visited_h2.add(id(node))
+                h2_text = clean_text(node.get_text())
+                blocks = []
+                # richtext/.comunicados imediatamente após
+                title_comp = node.find_parent(class_="title")
+                if title_comp:
+                    sib = title_comp.find_next_sibling()
+                    while sib and "spacer" in sib.get("class", []):
+                        sib = sib.find_next_sibling()
+                    if sib:
+                        for p in sib.find_all("p"):
+                            text = _inline_links(p)
+                            if text:
+                                blocks.append({"type": "paragraph", "text": text})
+                sections.append({"title": h2_text, "blocks": blocks})
+
+        # <p class="h2"> (ex: "Tire suas dúvidas sobre Apple Music")
+        if node.name == "p" and "h2" in classes and id(node) not in visited_h2:
+            if not node.find_parent("div", class_="tabs__content-item"):
+                visited_h2.add(id(node))
+                text = clean_text(node.get_text())
+                if text:
+                    sections.append({"title": text + ".", "blocks": []})
+
+        # end-of-page
+        if "end-of-page-component" in classes and id(node) not in visited_end:
+            visited_end.add(id(node))
+            for a in node.find_all("a", href=True):
+                href = a["href"].strip()
+                if href.startswith("#"):
+                    continue
+                text_parts = [clean_text(p.get_text()) for p in a.find_all("p")
+                              if clean_text(p.get_text())]
+                if text_parts:
+                    full = " ".join(text_parts) + f" Link: {href}"
+                    sections.append({"title": "", "blocks": [
+                        {"type": "paragraph", "text": full}
+                    ]})
             return
 
-        # Para divs e outros containers: desce recursivamente
-        if tag in ("div", "section", "article", "main", "aside", "nav",
-                   "header", "footer", "dl", "dt", "dd"):
-            for child in node.children:
-                process_node(child)
+        # Desce nos filhos
+        for child in node.children:
+            if isinstance(child, Tag):
+                walk(child)
 
+    body = soup.body or soup
     for child in body.children:
-        process_node(child)
+        if isinstance(child, Tag):
+            walk(child)
 
-    flush_section()
-
-    # Remove seções e blocos vazios
-    sections = [s for s in sections if s["blocks"]]
+    # Remove seções completamente vazias
+    sections = [s for s in sections if s.get("title") or s.get("blocks")]
     return sections
 
 
@@ -242,7 +497,7 @@ def save_txt(stem: str, meta: dict, sections: list[dict]) -> Path:
         for section in sections:
             # Título da seção (h1-h4)
             if section["title"]:
-                f.write(f"\n{section['title']}\n\n")
+                f.write(f"\n{section['title']}\n")
 
             for block in section["blocks"]:
 
