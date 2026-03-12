@@ -9,6 +9,9 @@ env/
 # Playwright
 /playwright/.auth/
 
+# Project
+output/
+input/
 
 # OS
 .DS_Store
