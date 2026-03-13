@@ -5,6 +5,10 @@ Contém toda a lógica de:
   - Busca e renderização do HTML via Playwright (apenas o bloco #main-content)
   - Extração de metadados, passos, FAQs, links, tabelas e seções estruturadas
   - Geração de saída .txt (scrapertxt.py) e .csv (scrapercsv.py) importam deste módulo
+
+Regra de seleção de páginas:
+  Apenas páginas informativas e estáticas são incluídas — sem seções de
+  valores de produtos, pacotes ou planos comerciais.
 """
 
 import re
@@ -16,34 +20,313 @@ from bs4 import BeautifulSoup, NavigableString, Tag
 # ──────────────────────────────────────────────
 
 BASE_URL = "https://vivo.com.br"
-BASE_PATH = "/para-voce/produtos-e-servicos/servicos-digitais/ativacao-servicos-digitais"
 
-# Todas as páginas de ativação conhecidas — slug após ativacao-servicos-digitais/
-ACTIVATION_PAGES = [
-    "ativacao-apple-music",
-    "ativacao-spotify",
-    "ativacao-netflix",
-    "ativacao-globoplay",
-    "ativacao-max",
-    "ativacao-amazon-prime",
-    "ativacao-telecine",
-    "ativacao-premiere",
-    "ativacao-youtube-premium",
-    "ativacao-vivo-tv",
-    "ativacao-vivae",
-    "ativacao-vale-saude",
-    "ativacao-ip-fixo-digital",
+# ---------------------------------------------------------------------------
+# Catálogo de páginas válidas para geração de TXT
+#
+# Cada entrada é um dict com:
+#   slug     → identificador único usado como nome do arquivo de saída
+#   url      → URL completa da página (sem BASE_URL quando relativa, ou absoluta)
+#   category → agrupamento lógico (usado em --list e relatórios)
+#
+# Regra de inclusão:
+#   ✅ Páginas informativas / estáticas: tutoriais, ajuda, dúvidas, explica
+#   ❌ Excluídas: páginas com vitrine de planos, preços ou seleção de produtos
+# ---------------------------------------------------------------------------
+
+PAGE_CATALOG: list[dict] = [
+
+    # ── Ativação de Serviços Digitais ──────────────────────────────────────
+    {
+        "slug": "ativacao-amazon-prime",
+        "path": "/para-voce/produtos-e-servicos/servicos-digitais/ativacao-servicos-digitais/ativacao-amazon-prime",
+        "category": "Ativação de Serviços Digitais",
+    },
+    {
+        "slug": "ativacao-apple-music",
+        "path": "/para-voce/produtos-e-servicos/servicos-digitais/ativacao-servicos-digitais/ativacao-apple-music",
+        "category": "Ativação de Serviços Digitais",
+    },
+    {
+        "slug": "ativacao-disney-plus",
+        "path": "/para-voce/produtos-e-servicos/servicos-digitais/ativacao-servicos-digitais/ativacao-disney-plus",
+        "category": "Ativação de Serviços Digitais",
+    },
+    {
+        "slug": "ativacao-globoplay",
+        "path": "/para-voce/produtos-e-servicos/servicos-digitais/ativacao-servicos-digitais/ativacao-globoplay",
+        "category": "Ativação de Serviços Digitais",
+    },
+    {
+        "slug": "ativacao-max",
+        "path": "/para-voce/produtos-e-servicos/servicos-digitais/ativacao-servicos-digitais/ativacao-max",
+        "category": "Ativação de Serviços Digitais",
+    },
+    {
+        "slug": "ativacao-netflix",
+        "path": "/para-voce/produtos-e-servicos/servicos-digitais/ativacao-servicos-digitais/ativacao-netflix",
+        "category": "Ativação de Serviços Digitais",
+    },
+    {
+        "slug": "ativacao-premiere",
+        "path": "/para-voce/produtos-e-servicos/servicos-digitais/ativacao-servicos-digitais/ativacao-premiere",
+        "category": "Ativação de Serviços Digitais",
+    },
+    {
+        "slug": "ativacao-spotify",
+        "path": "/para-voce/produtos-e-servicos/servicos-digitais/ativacao-servicos-digitais/ativacao-spotify",
+        "category": "Ativação de Serviços Digitais",
+    },
+    {
+        "slug": "ativacao-telecine",
+        "path": "/para-voce/produtos-e-servicos/servicos-digitais/ativacao-servicos-digitais/ativacao-telecine",
+        "category": "Ativação de Serviços Digitais",
+    },
+    {
+        "slug": "ativacao-vivo-play",
+        "path": "/para-voce/produtos-e-servicos/servicos-digitais/ativacao-servicos-digitais/ativacao-vivo-play",
+        "category": "Ativação de Serviços Digitais",
+    },
+    {
+        "slug": "ativacao-vivae",
+        "path": "/para-voce/produtos-e-servicos/servicos-digitais/ativacao-servicos-digitais/ativacao-vivae",
+        "category": "Ativação de Serviços Digitais",
+    },
+    {
+        "slug": "ativacao-vale-saude",
+        "path": "/para-voce/produtos-e-servicos/servicos-digitais/ativacao-servicos-digitais/ativacao-vale-saude",
+        "category": "Ativação de Serviços Digitais",
+    },
+    {
+        "slug": "ativacao-mcafee",
+        "path": "/para-voce/produtos-e-servicos/servicos-digitais/ativacao-servicos-digitais/ativacao-mcafee",
+        "category": "Ativação de Serviços Digitais",
+    },
+    {
+        "slug": "ativacao-ip-fixo-digital",
+        "path": "/para-voce/produtos-e-servicos/servicos-digitais/ativacao-servicos-digitais/ativacao-ip-fixo-digital",
+        "category": "Ativação de Serviços Digitais",
+    },
+
+    # ── Ajuda — Autoatendimento ────────────────────────────────────────────
+    {
+        "slug": "app-vivo",
+        "path": "/para-voce/app-vivo",
+        "category": "Ajuda e Autoatendimento",
+    },
+    {
+        "slug": "mais-ajuda",
+        "path": "/para-voce/ajuda/mais-ajuda",
+        "category": "Ajuda e Autoatendimento",
+    },
+    {
+        "slug": "encontre-uma-loja",
+        "path": "/para-voce/ajuda/mais-ajuda/encontre-uma-loja",
+        "category": "Ajuda e Autoatendimento",
+    },
+    {
+        "slug": "dicas-wifi",
+        "path": "/para-voce/ajuda/autoatendimento/dicas-wifi",
+        "category": "Ajuda e Autoatendimento",
+    },
+    {
+        "slug": "mudanca-de-endereco",
+        "path": "/para-voce/ajuda/autoatendimento/mudanca-de-endereco",
+        "category": "Ajuda e Autoatendimento",
+    },
+    {
+        "slug": "servico-de-instalacao",
+        "path": "/para-voce/ajuda/autoatendimento/servico-de-instalacao",
+        "category": "Ajuda e Autoatendimento",
+    },
+    {
+        "slug": "ativando-o-chip",
+        "path": "/para-voce/ajuda/sou-novo-aqui/ativando-o-chip",
+        "category": "Ajuda e Autoatendimento",
+    },
+    {
+        "slug": "consumo-de-internet",
+        "path": "/para-voce/ajuda/sou-novo-aqui/consumo-de-internet",
+        "category": "Ajuda e Autoatendimento",
+    },
+
+    # ── Ajuda — Fatura ─────────────────────────────────────────────────────
+    {
+        "slug": "2-via-de-fatura",
+        "path": "/para-voce/ajuda/minha-fatura/2-via-de-fatura",
+        "category": "Fatura",
+    },
+    {
+        "slug": "entenda-sua-fatura",
+        "path": "/para-voce/ajuda/minha-fatura/entenda-sua-fatura",
+        "category": "Fatura",
+    },
+    {
+        "slug": "fatura-digital",
+        "path": "/para-voce/ajuda/minha-fatura/fatura-digital",
+        "category": "Fatura",
+    },
+    {
+        "slug": "debito-automatico",
+        "path": "/para-voce/ajuda/minha-fatura/debito-automatico",
+        "category": "Fatura",
+    },
+    {
+        "slug": "negociacao-de-debitos",
+        "path": "/para-voce/ajuda/minha-fatura/negociacao-de-debitos",
+        "category": "Fatura",
+    },
+    {
+        "slug": "pagamento",
+        "path": "/para-voce/ajuda/minha-fatura/pagamento",
+        "category": "Fatura",
+    },
+    {
+        "slug": "bloqueio-de-linha",
+        "path": "/para-voce/ajuda/minha-fatura/bloqueio-de-linha",
+        "category": "Fatura",
+    },
+
+    # ── Dúvidas — Internet ─────────────────────────────────────────────────
+    {
+        "slug": "duvidas-internet-wifi",
+        "path": "/para-voce/ajuda/duvidas/internet/internet-vivo-wi-fi",
+        "category": "Dúvidas — Internet",
+    },
+    {
+        "slug": "duvidas-internet-fibra",
+        "path": "/para-voce/ajuda/duvidas/internet/internet-fibra",
+        "category": "Dúvidas — Internet",
+    },
+    {
+        "slug": "duvidas-internet-vivo-total",
+        "path": "/para-voce/ajuda/duvidas/internet/internet-vivo-total",
+        "category": "Dúvidas — Internet",
+    },
+
+    # ── Dúvidas — TV ──────────────────────────────────────────────────────
+    {
+        "slug": "duvidas-tv-fibra",
+        "path": "/para-voce/ajuda/duvidas/tv/tv-fibra",
+        "category": "Dúvidas — TV",
+    },
+    {
+        "slug": "duvidas-tv-apps-canais",
+        "path": "/para-voce/ajuda/duvidas/tv/tv-apps-de-canais",
+        "category": "Dúvidas — TV",
+    },
+    {
+        "slug": "duvidas-tv-assinatura",
+        "path": "/para-voce/ajuda/duvidas/tv/tv-assinatura",
+        "category": "Dúvidas — TV",
+    },
+    {
+        "slug": "duvidas-tv-online",
+        "path": "/para-voce/ajuda/duvidas/tv/tv-online",
+        "category": "Dúvidas — TV",
+    },
+
+    # ── Vivo Explica ───────────────────────────────────────────────────────
+    {
+        "slug": "explica-internet-wifi",
+        "path": "/para-voce/por-que-vivo/vivo-explica/internet-e-wi-fi",
+        "category": "Vivo Explica",
+    },
+    {
+        "slug": "explica-smartphones-eletronicos",
+        "path": "/para-voce/por-que-vivo/vivo-explica/smartphones-eletronicos",
+        "category": "Vivo Explica",
+    },
+    {
+        "slug": "explica-dicionario-velocidade",
+        "path": "/para-voce/por-que-vivo/vivo-explica/internet-e-wi-fi/dicionario-de-velocidade-da-internet",
+        "category": "Vivo Explica",
+    },
+
+    # ── Por que Vivo ───────────────────────────────────────────────────────
+    {
+        "slug": "teste-de-velocidade",
+        "path": "/para-voce/por-que-vivo/qualidade/teste-de-velocidade",
+        "category": "Por que Vivo",
+    },
+    {
+        "slug": "premios",
+        "path": "/para-voce/por-que-vivo/qualidade/premios",
+        "category": "Por que Vivo",
+    },
+    {
+        "slug": "vivo-renova",
+        "path": "/para-voce/por-que-vivo/beneficios/vivo-renova",
+        "category": "Por que Vivo",
+    },
+    {
+        "slug": "vivo-valoriza",
+        "path": "/para-voce/por-que-vivo/vivo-valoriza",
+        "category": "Por que Vivo",
+    },
+
+    # ── Conteúdos Complementares de Produtos ──────────────────────────────
+    {
+        "slug": "beneficios-vivo-tv",
+        "path": "/para-voce/produtos-e-servicos/para-casa/tv/beneficios-vivo-tv",
+        "category": "Conteúdos Complementares",
+    },
+    {
+        "slug": "apps-inclusos-plano-internet",
+        "path": "/para-voce/produtos-e-servicos/servicos-digitais/apps-inclusos-no-plano-de-internet",
+        "category": "Conteúdos Complementares",
+    },
+    {
+        "slug": "vivo-smart-wifi",
+        "path": "/para-voce/produtos-e-servicos/para-casa/internet/vivo-smart-wi-fi",
+        "category": "Conteúdos Complementares",
+    },
 ]
 
-# URL da página-índice de ativações (raiz)
-INDEX_PAGE = ""   # string vazia = sem slug, usa apenas BASE_PATH
+# Índice rápido: slug → entry
+_SLUG_INDEX: dict[str, dict] = {p["slug"]: p for p in PAGE_CATALOG}
+
+# Mantido para compatibilidade com scrapercsv.py legado
+ACTIVATION_PAGES = [
+    p["slug"] for p in PAGE_CATALOG
+    if p["category"] == "Ativação de Serviços Digitais"
+]
 
 
 def build_url(slug: str) -> str:
-    """Monta a URL completa a partir do slug da página."""
-    if slug:
-        return f"{BASE_URL}{BASE_PATH}/{slug}"
-    return f"{BASE_URL}{BASE_PATH}"
+    """Retorna a URL completa dado um slug do catálogo."""
+    entry = _SLUG_INDEX.get(slug)
+    if not entry:
+        raise ValueError(f"Slug desconhecido: '{slug}'. Use --list para ver os disponíveis.")
+    return f"{BASE_URL}{entry['path']}"
+
+
+def get_all_slugs() -> list[str]:
+    """Retorna todos os slugs do catálogo, na ordem de definição."""
+    return [p["slug"] for p in PAGE_CATALOG]
+
+
+def get_slugs_by_category(category: str) -> list[str]:
+    """Retorna slugs filtrados por categoria (case-insensitive, substring)."""
+    cat_lower = category.lower()
+    return [p["slug"] for p in PAGE_CATALOG if cat_lower in p["category"].lower()]
+
+
+def get_categories() -> list[str]:
+    """Retorna lista de categorias únicas, na ordem em que aparecem no catálogo."""
+    seen = []
+    for p in PAGE_CATALOG:
+        if p["category"] not in seen:
+            seen.append(p["category"])
+    return seen
+
+
+def get_entry(slug: str) -> dict:
+    """Retorna o dict completo de uma entrada do catálogo."""
+    entry = _SLUG_INDEX.get(slug)
+    if not entry:
+        raise ValueError(f"Slug desconhecido: '{slug}'")
+    return entry
 
 
 # ──────────────────────────────────────────────
@@ -172,6 +455,62 @@ def extract_steps_feature(container: Tag) -> list[str]:
     return items
 
 
+def extract_side_by_side(container: Tag) -> list[str]:
+    """
+    Extrai itens do componente .side-by-side-component como lista unordered.
+
+    Suporta três variantes encontradas nas páginas Vivo:
+    1. p.side-by-side__title + p.side-by-side__description → 'Título - Descrição'
+    2. div.side-by-side__item > <p> simples → texto do parágrafo
+    3. Fallback: qualquer <p> direto dentro do componente (sem wrapper __item)
+    """
+    items = []
+    item_divs = container.find_all("div", class_="side-by-side__item")
+    if item_divs:
+        for item_div in item_divs:
+            title_p = item_div.find("p", class_="side-by-side__title")
+            desc_p  = item_div.find("p", class_="side-by-side__description")
+            if title_p or desc_p:
+                # Variante 1: classes semânticas
+                parts = []
+                if title_p:
+                    t = _inline_links(title_p)
+                    if t:
+                        parts.append(t)
+                if desc_p:
+                    d = _inline_links(desc_p)
+                    if d:
+                        parts.append(d)
+                if parts:
+                    items.append(" - ".join(parts))
+            else:
+                # Variante 2: <p> simples dentro do item
+                texts = [_inline_links(p) for p in item_div.find_all("p") if _inline_links(p)]
+                if texts:
+                    items.append(" - ".join(texts))
+                else:
+                    # Variante 2b: texto direto no item (sem <p>)
+                    t = clean_text(item_div.get_text())
+                    if t:
+                        items.append(t)
+    else:
+        # Variante 3: sem __item wrappers — tenta h4.card-text__title (componente card real da Vivo)
+        h4_items = [
+            clean_text(h4.get_text())
+            for h4 in container.find_all("h4", class_="card-text__title")
+            if clean_text(h4.get_text())
+        ]
+        if h4_items:
+            items.extend(h4_items)
+        else:
+            # Variante 4: fallback — qualquer <p> dentro do componente
+            for p in container.find_all("p"):
+                text = _inline_links(p)
+                if text:
+                    items.append(text)
+    return items
+
+
 def extract_accordion_faqs(container: Tag) -> list[dict]:
     """Extrai FAQs de componentes .accordion."""
     faq_items = []
@@ -239,24 +578,18 @@ def _extract_richtext_blocks(container: Tag) -> list[dict]:
     Extrai conteúdo de texto rico de um container (aba ou seção):
     - Parágrafos <p> → bloco "paragraph"
     - Subtítulos <h3>/<h4> ou <p> com <strong> como único filho → bloco "heading"
-      (formatado no .txt como subtítulo em linha própria)
     - Listas <ul>/<ol> avulsas (fora de steps/accordion) → bloco "unordered"/"ordered"
-
-    Ignora elementos que já são tratados por outros extratores:
-    steps-feature, accordion, teaser, slick sliders e elementos ocultos.
     """
     blocks = []
 
-    # Tags de container que devemos descer mas não registrar como bloco
     SKIP_CONTAINERS = {
         "div", "section", "article", "aside", "nav",
         "header", "footer", "main"
     }
-    # Classes que indicam elementos a ignorar completamente
     IGNORE_CLASSES = {
         "steps-feature__container", "steps-feature",
         "accordion", "accordion__item",
-        "faq-container-component", "faq",          # ignora todo o container de FAQ
+        "faq-container-component", "faq",
         "slick-slider", "slick-list", "slick-track",
         "hide-text", "step-buttons",
     }
@@ -272,7 +605,6 @@ def _extract_richtext_blocks(container: Tag) -> list[dict]:
         return False
 
     def is_block_heading(node: Tag) -> bool:
-        """True se o nó é um subtítulo: <h3>, <h4>, ou <p> com apenas <strong>."""
         if node.name in ("h3", "h4"):
             return True
         if node.name == "p":
@@ -332,9 +664,6 @@ def extract_sections(soup: BeautifulSoup) -> list[dict]:
     """
     sections = list(_extract_page_title_section(soup))
 
-    # ── Pré-computa fingerprints de todas as respostas de FAQ da página ──────
-    # Qualquer bloco de texto que seja substring de uma resposta de accordion
-    # é considerado duplicata mobile e deve ser ignorado quando aparece fora das abas.
     _faq_answer_texts: set[str] = set()
     for container in soup.find_all("div", class_="accordion__item__container"):
         txt = clean_text(container.get_text())
@@ -342,7 +671,6 @@ def extract_sections(soup: BeautifulSoup) -> list[dict]:
             _faq_answer_texts.add(txt)
 
     def _is_faq_duplicate(node: Tag) -> bool:
-        """True se todos os parágrafos do node são duplicatas de respostas de FAQ."""
         paras = [clean_text(p.get_text()) for p in node.find_all("p") if clean_text(p.get_text())]
         if not paras:
             return False
@@ -350,7 +678,6 @@ def extract_sections(soup: BeautifulSoup) -> list[dict]:
             any(p in faq_ans or faq_ans in p for faq_ans in _faq_answer_texts)
             for p in paras
         )
-    # ────────────────────────────────────────────────────────────────────────
 
     visited_tabs: set[int] = set()
     visited_teasers: set[int] = set()
@@ -369,10 +696,95 @@ def extract_sections(soup: BeautifulSoup) -> list[dict]:
             return
         classes = node.get("class", [])
 
-        # ── comunicados: ignora se for duplicata mobile de FAQ ───────
         if "comunicados" in classes:
-            if _is_faq_duplicate(node):
-                return  # descarta sem descer
+            # Descarta apenas se for duplicata mobile de FAQ E não houver seção-título
+            # esperando conteúdo. Quando um p.h2 ("Sobre mudanças...") já foi registrado
+            # como última seção sem blocos, o comunicados é sempre seu conteúdo —
+            # independente de o texto coincidir com respostas de FAQ de outras abas
+            # (comportamento confirmado em ativacao-disney-plus).
+            last = sections[-1] if sections else None
+            has_waiting_section = (
+                last is not None
+                and last.get("title")
+                and not last.get("blocks")
+            )
+            if _is_faq_duplicate(node) and not has_waiting_section:
+                return
+            # Usa _extract_richtext_blocks para capturar toda a estrutura interna:
+            # ul > li > strong (bullets de subtítulo), <p> e <ul> intercalados.
+            rich_blocks = _extract_richtext_blocks(node)
+            if rich_blocks:
+                if last is not None:
+                    last["blocks"].extend(rich_blocks)
+                else:
+                    sections.append({"title": "", "blocks": rich_blocks})
+            return
+
+        # ── side-by-side-component ──────────────────────────────────
+        if "side-by-side-component" in classes:
+            items = extract_side_by_side(node)
+            if items:
+                last = sections[-1] if sections else None
+                if last is not None:
+                    last["blocks"].append({"type": "unordered", "items": items})
+                else:
+                    sections.append({"title": "", "blocks": [{"type": "unordered", "items": items}]})
+            return
+
+        # ── side-by-side (cards com ícone + h4.card-text__title) ────
+        # Estrutura: div.row.side-by-side > div.card-text > h4.card-text__title
+        if "side-by-side" in classes and "row" in classes:
+            items = [
+                clean_text(h4.get_text())
+                for h4 in node.find_all("h4", class_="card-text__title")
+                if clean_text(h4.get_text())
+            ]
+            if items:
+                last = sections[-1] if sections else None
+                if last is not None:
+                    last["blocks"].append({"type": "unordered", "items": items})
+                else:
+                    sections.append({"title": "", "blocks": [{"type": "unordered", "items": items}]})
+            return
+
+        # ── nav-links (texto + link de documento) ──────────────────
+        # Suporta: <p>texto <a href>...</p>, <a href> direto, ou texto+link inline
+        if "nav-links" in classes:
+            para_blocks = []
+            paragraphs = node.find_all("p")
+            if paragraphs:
+                # Variante com <p>
+                for p in paragraphs:
+                    text = _inline_links(p)
+                    if text:
+                        para_blocks.append({"type": "paragraph", "text": text})
+            else:
+                # Variante sem <p>: captura links diretos e/ou texto inline do container
+                text = _inline_links(node)
+                if text:
+                    para_blocks.append({"type": "paragraph", "text": text})
+            if para_blocks:
+                last = sections[-1] if sections else None
+                if last is not None:
+                    last["blocks"].extend(para_blocks)
+                else:
+                    sections.append({"title": "", "blocks": para_blocks})
+            return
+
+        # ── legaltext-component (texto legal/rodapé de seção) ───────
+        if "legaltext-component" in classes:
+            para_blocks = []
+            for p in node.find_all("p"):
+                text = _inline_links(p)
+                if text:
+                    para_blocks.append({"type": "paragraph", "text": text})
+            if para_blocks:
+                last = sections[-1] if sections else None
+                if last is not None:
+                    last["blocks"].extend(para_blocks)
+                else:
+                    sections.append({"title": "", "blocks": para_blocks})
+            return
 
         # ── tabs-component ──────────────────────────────────────────
         if "tabs-component" in classes and id(node) not in visited_tabs:
@@ -383,21 +795,16 @@ def extract_sections(soup: BeautifulSoup) -> list[dict]:
                     continue
                 blocks = []
 
-                # Passos — usa helper que suporta ambas as variantes do componente
                 step_blocks = _extract_steps_from_container(tab_content)
                 for sb in step_blocks:
                     blocks.append(sb)
-                # Marca os steps desta aba como visitados (evita reprocessar abaixo)
                 _mark_steps_visited(tab_content)
 
-                # FAQs
                 for acc in tab_content.find_all("ul", class_="accordion"):
                     faq_items = extract_accordion_faqs(acc)
                     if faq_items:
                         blocks.append({"type": "faq", "items": faq_items})
 
-                # Richtext — captura abas com conteúdo somente em texto/parágrafos
-                # (ex: "Já sou membro Prime" que tem texto corrido e subtítulos h3/strong)
                 if not blocks:
                     blocks.extend(_extract_richtext_blocks(tab_content))
 
@@ -423,7 +830,7 @@ def extract_sections(soup: BeautifulSoup) -> list[dict]:
                     })
                 return
 
-        # ── h2 avulso (fora de abas e teasers) ─────────────────────
+        # ── h2 avulso ───────────────────────────────────────────────
         if node.name == "h2" and id(node) not in visited_h2:
             if not node.find_parent("div", class_="tabs__content-item") and \
                not node.find_parent("div", class_="teaser"):
@@ -435,8 +842,6 @@ def extract_sections(soup: BeautifulSoup) -> list[dict]:
                     sib = title_comp.find_next_sibling()
                     while sib and "spacer" in sib.get("class", []):
                         sib = sib.find_next_sibling()
-                    # Não captura o sibling se for steps (tratado abaixo)
-                    # nem se for um comunicados de duplicata mobile de FAQ
                     is_steps = sib and (
                         "steps-feature" in sib.get("class", [])
                         or sib.find("div", class_="steps-feature__container")
@@ -449,7 +854,7 @@ def extract_sections(soup: BeautifulSoup) -> list[dict]:
                                 blocks.append({"type": "paragraph", "text": text})
                 sections.append({"title": h2_text, "blocks": blocks})
 
-        # ── <p class="h2"> (ex: "Tire suas dúvidas…") ───────────────
+        # ── <p class="h2"> ───────────────────────────────────────────
         if node.name == "p" and "h2" in classes and id(node) not in visited_h2:
             if not node.find_parent("div", class_="tabs__content-item"):
                 visited_h2.add(id(node))
@@ -457,9 +862,7 @@ def extract_sections(soup: BeautifulSoup) -> list[dict]:
                 if text:
                     sections.append({"title": text + ".", "blocks": []})
 
-        # ── steps-feature avulsos (fora de qualquer aba) ───────────
-        # Captura blocos de passos diretamente no DOM, associados a um h2
-        # anterior (ex: "Saiba como gerenciar sua cobrança").
+        # ── steps-feature avulsos ───────────────────────────────────
         is_steps_container = (
             node.get("data-controller") == "steps-feature"
             or "steps-feature__container" in classes
@@ -469,7 +872,6 @@ def extract_sections(soup: BeautifulSoup) -> list[dict]:
                 visited_steps.add(id(node))
                 items = extract_steps_feature(node)
                 if items:
-                    # Tenta anexar ao último h2 registrado (que ainda não tem steps)
                     last = sections[-1] if sections else None
                     if last and last.get("title") and not any(
                         b["type"] == "ordered" for b in last.get("blocks", [])
@@ -501,7 +903,36 @@ def extract_sections(soup: BeautifulSoup) -> list[dict]:
                     })
             return
 
-        # Desce nos filhos
+        # ── <p> avulso fora de tabs/steps/teaser ────────────────────
+        # Captura parágrafos em containers genéricos (richtext-component,
+        # divs de grid AEM, comunicados não-duplicata já processados acima, etc.)
+        # que não foram interceptados por nenhum handler específico acima.
+        # Os parágrafos são anexados à última seção registrada.
+        if node.name == "p":
+            # Ignora: p.h2 (já tratado), p dentro de tabs/accordion/steps/teaser
+            in_protected = (
+                "h2" in classes
+                or node.find_parent("div", class_="tabs__content-item")
+                or node.find_parent("li",  class_="accordion__item")
+                or node.find_parent("div", attrs={"data-controller": "steps-feature"})
+                or node.find_parent("div", class_="steps-feature__container")
+                or node.find_parent("div", class_="teaser")
+                or node.find_parent("div", class_="end-of-page-component")
+                or node.find_parent("div", class_="comunicados")
+                or node.find_parent("div", class_="legaltext-component")
+                or node.find_parent("div", class_="nav-links")
+                or node.find_parent("div", class_="side-by-side-component")
+            )
+            if not in_protected:
+                text = _inline_links(node)
+                if text:
+                    last = sections[-1] if sections else None
+                    if last is not None:
+                        last["blocks"].append({"type": "paragraph", "text": text})
+                    else:
+                        sections.append({"title": "", "blocks": [{"type": "paragraph", "text": text}]})
+            return
+
         for child in node.children:
             if isinstance(child, Tag):
                 walk(child)
@@ -515,7 +946,7 @@ def extract_sections(soup: BeautifulSoup) -> list[dict]:
 
 
 # ──────────────────────────────────────────────
-# Extratores para CSV
+# Extratores para CSV (mantidos para compatibilidade)
 # ──────────────────────────────────────────────
 
 def extract_links(soup: BeautifulSoup) -> list[dict]:

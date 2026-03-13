@@ -10,9 +10,9 @@ Arquivos gerados por slug:
   output/csv/<slug>_tabelaN.csv    → tabelas HTML (se existirem)
 
 Uso:
-    python scrapercsv.py                     # processa todas as páginas
+    python scrapercsv.py                     # processa todas as páginas de ativação
     python scrapercsv.py ativacao-spotify    # processa apenas um slug
-    python scrapercsv.py --list              # lista todos os slugs disponíveis
+    python scrapercsv.py --list              # lista todos os slugs de ativação
 """
 
 import asyncio
@@ -25,6 +25,7 @@ from playwright.async_api import async_playwright
 from extractor import (
     ACTIVATION_PAGES,
     build_url,
+    get_all_slugs,
     fetch_main_content,
     extract_meta,
     extract_sections,
@@ -136,13 +137,14 @@ if __name__ == "__main__":
     args = sys.argv[1:]
 
     if "--list" in args:
-        print("Slugs disponíveis:")
+        print("Slugs disponíveis (páginas de ativação):")
         for s in ACTIVATION_PAGES:
             print(f"  {s}  →  {build_url(s)}")
         sys.exit(0)
 
     if args:
-        invalid = [a for a in args if a not in ACTIVATION_PAGES]
+        all_slugs = get_all_slugs()
+        invalid = [a for a in args if a not in all_slugs]
         if invalid:
             print(f"⚠️  Slugs inválidos: {', '.join(invalid)}")
             print(f"   Use --list para ver os disponíveis.")
