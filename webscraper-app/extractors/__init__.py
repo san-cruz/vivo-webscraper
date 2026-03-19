@@ -8,9 +8,11 @@ _CATEGORY_TO_MODULE: dict[str, str] = {
     "Dúvidas — Internet":            "extractors.duvidas-internet-tv",
     "Dúvidas — TV":                  "extractors.duvidas-internet-tv",
     "Fatura":                        "extractors.fatura",
+    "Vivo Explica":                  "extractors.vivo-explica",
+    "Por que Vivo":                  "extractors.por-que-vivo",
 }
 
-_FALLBACK_CATEGORIES = {"Vivo Explica", "Por que Vivo", "Conteúdos Complementares"}
+_FALLBACK_CATEGORIES = {"Conteúdos Complementares"}
 
 
 def _load_module(module_name: str):

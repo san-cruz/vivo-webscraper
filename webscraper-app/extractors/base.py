@@ -87,6 +87,8 @@ def _inline_links(tag: Tag) -> str:
 async def fetch_main_content(page, url: str) -> BeautifulSoup | None:
     try:
         await page.goto(url, wait_until="networkidle", timeout=60_000)
+        await page.wait_for_timeout(3000)  # aguarda 3s após networkidle
+
     except Exception as e:
         print(f"   ⚠️  Timeout/erro ao navegar para {url}: {e}")
         try:
@@ -240,8 +242,19 @@ def collect_all_accordion_faqs(container: Tag) -> list[dict]:
 
 def _extract_page_title_section(soup: BeautifulSoup) -> list[dict]:
     h1 = soup.find("h1")
-    return [{"title": clean_text(h1.get_text()), "blocks": []}] if h1 else []
-
+    if not h1:
+        return []
+    blocks = []
+    # Captura p.body que aparece como irmão do h1 dentro do mesmo
+    # container (padrão div.title > div.hgroup > div > h1 + p.body)
+    parent = h1.parent
+    if parent:
+        p_body = parent.find("p", class_="body")
+        if p_body:
+            text = _inline_links(p_body)
+            if text:
+                blocks.append({"type": "paragraph", "text": text})
+    return [{"title": clean_text(h1.get_text()), "blocks": blocks}]
 
 def _extract_steps_from_container(tab_or_section: Tag) -> list[dict]:
     blocks, seen = [], set()
@@ -495,7 +508,22 @@ def handle_tabs_component(node, sections, visited, visited_steps):
         for acc in tab_content.find_all("ul", class_="accordion"):
             faq_items = extract_accordion_faqs(acc)
             if faq_items: blocks.append({"type":"faq","items":faq_items})
-        if not blocks: blocks.extend(_extract_richtext_blocks(tab_content))
+        if not blocks:
+            # Extrair side-by-side-component dentro da aba (ex: cards de parceiros)
+            for sbs in tab_content.find_all("div", class_="side-by-side-component"):
+                from extractors.base import extract_side_by_side
+                items, is_card_layout = extract_side_by_side(sbs)
+                if items:
+                    if is_card_layout:
+                        for i, item in enumerate(items):
+                            if i > 0:
+                                blocks.append({"type": "blank"})
+                            blocks.append({"type": "paragraph", "text": f"- {item}"})
+                    else:
+                        blocks.append({"type": "unordered", "items": items})
+
+        if not blocks:
+            blocks.extend(_extract_richtext_blocks(tab_content))
         if blocks: sections.append({"title": tab_name + ".", "blocks": blocks})
     return True
 
@@ -530,6 +558,14 @@ def handle_h2(node, sections, visited, is_faq_duplicate=None):
         is_handled = sib and bool(set(sib.get("class",[])) & HANDLED_COMPONENTS)
         if sib and not is_steps and not is_handled and not is_faq_duplicate(sib):
             blocks = [{"type":"paragraph","text":_inline_links(p)} for p in sib.find_all("p") if _inline_links(p)]
+    if not blocks:
+        parent = node.parent
+        if parent:
+            p_body = parent.find("p", class_="body")
+            if p_body:
+                text = _inline_links(p_body)
+                if text:
+                    blocks.append({"type": "paragraph", "text": text})
     sections.append({"title": h2_text, "blocks": blocks})
     return True
 
@@ -582,7 +618,9 @@ def handle_destaque_banner(node, sections, visited):
         if not href or href.startswith("#"): continue
         content = item.find("div", class_="destaque-banner__item__content")
         if not content: continue
-        overline_tag, h3_tag = content.find("p", class_="overline"), content.find("h3")
+        overline_tag = content.find("p", class_="overline")
+        h3_tag       = content.find("h3") or content.find(class_="h3")  
+        btn_span     = content.find("span", class_="h4")
         card_blocks = [b for b in [{"type":"paragraph","text":clean_text(overline_tag.get_text())} if overline_tag else None,
                                     {"type":"paragraph","text":clean_text(h3_tag.get_text())} if h3_tag else None,
                                     {"type":"paragraph","text":f"Link: {href}"}] if b]
@@ -636,45 +674,93 @@ def handle_cross(node, sections, visited):
     append_to_last_section(sections, blocks)
     return True
 
+
 def handle_banner_secondary(node, sections, visited):
-    if "banner-secondary-container-component" not in node.get("class",[]) or id(node) in visited: return False
+    if "banner-secondary-container-component" not in node.get("class", []) or id(node) in visited:
+        return False
     visited.add(id(node))
-    slick = node.find("div", class_="slick-slider")
-    if not slick: return True
-    seen_indexes, real_slides = set(), []
-    for slide in slick.find_all("div", class_="slick-slide"):
-        raw = slide.get("data-slick-index")
-        if raw is None: continue
-        try: idx = int(raw)
-        except ValueError: continue
-        if idx < 0 or idx in seen_indexes: continue
-        seen_indexes.add(idx); real_slides.append(slide)
-    real_slides.sort(key=lambda s: int(s.get("data-slick-index",0)))
-    slide_groups = []
-    for slide in real_slides:
-        content = slide.find("div", class_="banner__content")
-        if not content: continue
-        subtitle_tag = content.find("p", class_="overline") or content.find("h3", class_="overline") or content.find(class_="banner__subtitle")
+
+    def _extract_content_block(content: "Tag") -> list[dict]:
+        """Extrai blocos de um div.banner__content."""
+        subtitle_tag = (
+            content.find("p", class_="overline")
+            or content.find("h3", class_="overline")
+            or content.find(class_="banner__subtitle")
+        )
         title_tag = content.find(class_="banner__title")
-        text_tag = content.find(class_="banner__text")
+        text_tag  = content.find(class_="banner__text")
+
+        # CTAs: links-purple OU links-white OU qualquer <a> dentro de <ul>
         action_links = []
-        for a in content.find_all("a", class_="links-purple", href=True):
-            if "hide-desktop" in a.get("class",[]): continue
+        for a in content.find_all("a", href=True):
+            cls = a.get("class", [])
+            if "hide-desktop" in cls:
+                continue
+            # ignora âncoras internas puras
             href = _normalize_href(a["href"].strip())
-            btn_text = clean_text(a.get_text())
-            if href and not href.startswith("#") and btn_text: action_links.append(f"{btn_text} Link: {href}")
-        slide_blocks = [b for b in [
-            {"type":"paragraph","text":clean_text(subtitle_tag.get_text())} if subtitle_tag else None,
-            {"type":"paragraph","text":clean_text(title_tag.get_text())} if title_tag else None,
-            {"type":"paragraph","text":clean_text(text_tag.get_text())} if text_tag else None,
-            *[{"type":"paragraph","text":l} for l in action_links]] if b]
-        if slide_blocks: slide_groups.append(slide_blocks)
-    if not slide_groups: return True
-    blocks = []
-    for i, group in enumerate(slide_groups):
-        if i > 0: blocks.append({"type":"blank"})
-        blocks.extend(group)
-    append_to_last_section(sections, blocks)
+            if not href or href.startswith("#"):
+                continue
+            btn_text = clean_text(a.get("data-label-desktop") or a.get_text())
+            if btn_text:
+                action_links.append(f"{btn_text} Link: {href}")
+
+        return [b for b in [
+            {"type": "paragraph", "text": clean_text(subtitle_tag.get_text())} if subtitle_tag else None,
+            {"type": "paragraph", "text": clean_text(title_tag.get_text())}    if title_tag  else None,
+            {"type": "paragraph", "text": clean_text(text_tag.get_text())}     if text_tag   else None,
+            *[{"type": "paragraph", "text": lnk} for lnk in action_links],
+        ] if b]
+
+    # ── Variante 1: slick-slider (comportamento original) ──────────────────
+    slick = node.find("div", class_="slick-slider")
+    if slick:
+        seen_indexes, real_slides = set(), []
+        for slide in slick.find_all("div", class_="slick-slide"):
+            raw = slide.get("data-slick-index")
+            if raw is None:
+                continue
+            try:
+                idx = int(raw)
+            except ValueError:
+                continue
+            if idx < 0 or idx in seen_indexes:
+                continue
+            seen_indexes.add(idx)
+            real_slides.append(slide)
+        real_slides.sort(key=lambda s: int(s.get("data-slick-index", 0)))
+
+        slide_groups = []
+        for slide in real_slides:
+            content = slide.find("div", class_="banner__content")
+            if content:
+                blocks = _extract_content_block(content)
+                if blocks:
+                    slide_groups.append(blocks)
+
+        if slide_groups:
+            blocks = []
+            for i, group in enumerate(slide_groups):
+                if i > 0:
+                    blocks.append({"type": "blank"})
+                blocks.extend(group)
+            append_to_last_section(sections, blocks)
+        return True
+
+    # ── Variante 2: sem slick — slides diretos (banner--secondary__slider) ─
+    all_groups = []
+    for content in node.find_all("div", class_="banner__content"):
+        blocks = _extract_content_block(content)
+        if blocks:
+            all_groups.append(blocks)
+
+    if all_groups:
+        blocks = []
+        for i, group in enumerate(all_groups):
+            if i > 0:
+                blocks.append({"type": "blank"})
+            blocks.extend(group)
+        append_to_last_section(sections, blocks)
+
     return True
 
 def handle_highlight_product(node, sections, visited):
@@ -688,13 +774,28 @@ def handle_highlight_product(node, sections, visited):
     return True
 
 def handle_end_of_page(node, sections, visited):
-    if "end-of-page-component" not in node.get("class",[]) or id(node) in visited: return False
+    if "end-of-page-component" not in node.get("class", []) or id(node) in visited:
+        return False
     visited.add(id(node))
-    for a in node.find_all("a", href=True):
-        href = _normalize_href(a["href"].strip())
-        if href.startswith("#"): continue
+
+    for a in node.find_all("a"):
+        # Tenta href direto; fallback para data-target
+        raw_href = (a.get("href") or a.get("data-target") or "").strip()
+        href = _normalize_href(raw_href) if raw_href else ""
+        has_valid_href = href and not href.startswith("#")
+
         text_parts = [clean_text(p.get_text()) for p in a.find_all("p") if clean_text(p.get_text())]
-        if text_parts: sections.append({"title":"","blocks":[{"type":"paragraph","text":" ".join(text_parts) + f" Link: {href}"}]})
+        if not text_parts:
+            continue
+
+        if has_valid_href:
+            line = " ".join(text_parts) + f" Link: {href}"
+        else:
+            # Item sem link útil (ex: "Entre em contato → 103 15") - captura só o texto
+            line = " ".join(text_parts)
+
+        sections.append({"title": "", "blocks": [{"type": "paragraph", "text": line}]})
+
     return True
 
 def handle_button_component(node, sections, visited):
@@ -709,7 +810,7 @@ def handle_button_component(node, sections, visited):
 
 def handle_p_standalone(node, sections, extra_protected_parents=()):
     if node.name != "p": return False
-    base_protected = ("tabs__content-item","accordion__item","steps-feature__container","teaser","end-of-page-component","comunicados","legaltext-component","nav-links","side-by-side-component","richtext")
+    base_protected = ("tabs__content-item","accordion__item","steps-feature__container","teaser","end-of-page-component","comunicados","legaltext-component","nav-links","side-by-side-component","richtext", "online-store-container-component")
     for cls in base_protected + extra_protected_parents:
         if node.find_parent("div", class_=cls) or node.find_parent("li", class_=cls): return False
     if node.get("data-controller") == "steps-feature" or "h2" in node.get("class",[]): return False
