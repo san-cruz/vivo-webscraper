@@ -30,19 +30,24 @@ playwright install chromium
 ├── extractors/                # Lógica de extração por categoria
 │   ├── __init__.py            # Roteamento slug → extractor correto
 │   ├── base.py                # Catálogo, helpers e componentes compartilhados
-│   ├── ativacao-servicos-digitais.py   # Extractor para páginas de ativação
-│   └── duvidas-internet-tv.py          # Extractor para páginas de dúvidas
+│   ├── ativacao-servicos-digitais.py
+│   ├── ajuda-e-autoatendimento.py
+│   ├── duvidas-internet-tv.py
+│   ├── fatura.py
+│   ├── vivo-explica.py
+│   ├── por-que-vivo.py
+│   └── conteudos-complementares.py
 │
 └── output/
     └── txt/
         ├── ativacao-de-servicos-digitais/
         ├── duvidas-internet/
         ├── duvidas-tv/
-        ├── ajuda-e-autoatendimento/     # ⏭️ sem extractor ainda
-        ├── fatura/                      # ⏭️ sem extractor ainda
-        ├── vivo-explica/                # ⏭️ sem extractor ainda
-        ├── por-que-vivo/                # ⏭️ sem extractor ainda
-        └── conteudos-complementares/    # ⏭️ sem extractor ainda
+        ├── ajuda-e-autoatendimento/
+        ├── fatura/
+        ├── vivo-explica/
+        ├── por-que-vivo/
+        └── conteudos-complementares/
 ```
 
 ---
@@ -50,7 +55,7 @@ playwright install chromium
 ## Uso — `scrapertxt.py`
 
 ```bash
-# Todas as páginas do catálogo (47 páginas, 8 categorias)
+# Todas as páginas do catálogo
 python scrapertxt.py
 
 # Slug específico
@@ -67,10 +72,8 @@ python scrapertxt.py --category "Ativação de Serviços Digitais"
 python scrapertxt.py --list
 
 # Listar slugs de uma categoria específica
-python scrapertxt.py --list --category "Dúvidas — TV"
+python scrapertxt.py --list --category "Vivo Explica"
 ```
-
-> Páginas de categorias **sem extractor** são puladas automaticamente com aviso `⏭️ Pulado`, sem interromper o processo.
 
 ---
 
@@ -95,16 +98,9 @@ Confira tudo que sua assinatura Globoplay oferece.
 - Pague seu plano Vivo e Globoplay na mesma fatura
 - Acompanhe a programação dos canais Globo ao vivo
 ...
-
-Tire suas dúvidas sobre Globoplay.
-
-Sobre o Serviço.
-1. Contratei o plano Vivo Fibra com Globoplay, quando posso começar a usá-lo?
-O Globoplay estará disponível para ativação após a instalação da Fibra.
-...
 ```
 
-### Páginas de dúvidas (internet / TV)
+### Páginas de dúvidas / explica / por que vivo / conteúdos complementares
 
 ```
 SEÇÃO: Vivo dúvidas: Wi-Fi
@@ -120,24 +116,7 @@ Conferir mais dicas Link: https://vivo.com.br/para-voce/ajuda/resolva-agora/conf
 As redes Wi-Fi têm diferentes tipos de frequência, medidas em giga-hertz (GHz).
 - A frequência 5GHz permite alta velocidade, mas tem área de cobertura menor
 - A frequência 2.4 GHz permite uma área de cobertura maior, mas tem menos velocidade
-Sempre que possível, dê preferência ao 5GHz.
 ...
-
-Wi-Fi na casa toda com o Repetidor Vivo Smart Wi-Fi!.
-Ele melhora o sinal da internet em locais onde o Wi-Fi tem dificuldade de chegar, como:
-- Casas e apartamentos com mais de um andar
-- Imóveis com formato em L
-Comprar Repetidor Link: https://store.vivo.com.br/...
-
-Informações práticas para o seu dia a dia
-Veja dicas para aproveitar ao máximo seu wi-fi Link: https://vivo.com.br/...
-Aprenda a escolher o melhor roteador para suas necessidades Link: https://vivo.com.br/...
-
-Dúvidas sobre outro assunto?
-Celular
-Link: https://vivo.com.br/para-voce/ajuda/duvidas/celular
-Internet
-Link: https://vivo.com.br/para-voce/ajuda/duvidas/internet
 ```
 
 ---
@@ -147,7 +126,8 @@ Link: https://vivo.com.br/para-voce/ajuda/duvidas/internet
 | Elemento | Formato no .txt |
 |---|---|
 | Título da página | `SEÇÃO: <título>` |
-| Subtítulo (h2) | linha em branco + texto |
+| Subtítulo (h2/h3) | linha em branco + texto |
+| Subtítulo inline (p.body junto ao h2/h3) | parágrafo logo abaixo do título |
 | Lista de passos (ol) | `Passos:\n1. -item` |
 | Lista não-numerada (ul) | `- item` |
 | FAQ — pergunta | `N. Pergunta?` |
@@ -163,134 +143,105 @@ Link: https://vivo.com.br/para-voce/ajuda/duvidas/internet
 
 ## Arquitetura dos extractors
 
-Cada categoria tem seu próprio extractor especializado na pasta `extractors/`. O roteamento é feito automaticamente em `extractors/__init__.py` via `get_extractor(slug)`.
+Cada categoria tem seu próprio extractor em `extractors/`. O roteamento é feito automaticamente em `extractors/__init__.py` via `get_extractor(slug)`.
+
+### Categorias e extractors
+
+| Categoria | Extractor |
+|---|---|
+| Ativação de Serviços Digitais | `ativacao-servicos-digitais.py` |
+| Ajuda e Autoatendimento | `ajuda-e-autoatendimento.py` |
+| Dúvidas — Internet | `duvidas-internet-tv.py` |
+| Dúvidas — TV | `duvidas-internet-tv.py` |
+| Fatura | `fatura.py` |
+| Vivo Explica | `vivo-explica.py` |
+| Por que Vivo | `por-que-vivo.py` |
+| Conteúdos Complementares | `conteudos-complementares.py` |
 
 ### Adicionar um novo extractor
 
-1. Crie `extractors/<nome-da-categoria>.py` com uma função `extract_sections(soup) -> list[dict]`
-2. Importe de `extractors.base` os helpers que precisar
+1. Crie `extractors/<nome-da-categoria>.py` com uma função `extract_sections(soup, page_url="") -> list[dict]`
+2. Importe de `extractors.base` os handlers que precisar
 3. Registre a categoria em `_CATEGORY_TO_MODULE` no `extractors/__init__.py`
-4. Remova a categoria de `_FALLBACK_CATEGORIES` no mesmo arquivo
 
 ```python
 # extractors/__init__.py
 _CATEGORY_TO_MODULE: dict[str, str] = {
-    "Ativação de Serviços Digitais": "extractors.ativacao-servicos-digitais",
-    "Dúvidas — Internet":            "extractors.duvidas-internet-tv",
-    "Dúvidas — TV":                  "extractors.duvidas-internet-tv",
-    "Fatura":                        "extractors.fatura",  # ← nova entrada
+    ...
+    "Nova Categoria": "extractors.nova-categoria",  # ← nova entrada
 }
 ```
 
-### Helpers disponíveis em `extractors/base.py`
+### Handlers disponíveis em `extractors/base.py`
+
+#### Helpers de texto e navegação
 
 | Função | Descrição |
 |---|---|
 | `clean_text(text)` | Remove espaços/quebras extras |
 | `_inline_links(tag)` | Reconstrói texto com `Link: url` inline |
-| `_normalize_href(href)` | Converte `/path` → `https://vivo.com.br/path` |
+| `_normalize_href(href)` | Converte `/path` → `https://vivo.com.br/path` e `//` → `https://` |
+| `append_to_last_section(sections, blocks)` | Anexa blocos à última seção registrada |
+| `make_faq_duplicate_checker(soup)` | Retorna função que detecta parágrafos duplicados de FAQ |
+
+#### Extratores de componentes
+
+| Função | Descrição |
+|---|---|
 | `extract_steps_feature(container)` | Extrai passos do componente `.steps-feature` |
 | `extract_accordion_faqs(container)` | Extrai FAQs simples (resposta como string inline) |
 | `extract_accordion_faqs_formatted(container)` | FAQs com `N.1./N.2.` e `- item` |
-| `collect_all_accordion_faqs(container)` | Agrupa todos os `ul.accordion` em uma lista única |
-| `extract_side_by_side(container)` | Extrai items do componente `.side-by-side-component` |
-| `_extract_richtext_blocks(container)` | Extrai p/ul/ol/h3/h4 de um bloco richtext |
+| `collect_all_accordion_faqs(container)` | Agrupa todos os `ul.accordion` em lista única |
+| `extract_side_by_side(container)` | Extrai items do componente `.side-by-side-component`; retorna `(items, is_card_layout)` |
+| `_extract_card_blocks(card)` | Extrai título, preço, descrição e CTA de um card `.product-item` ou `.card-text` |
+| `_extract_richtext_blocks(container)` | Extrai p/ul/ol/h3/h4 de um bloco richtext (modo simples) |
+| `_extract_richtext_full(container)` | Extrai todo conteúdo textual de um container (modo completo, inclui h2/h3/h4) |
+
+#### Handlers de seção (walk)
+
+Cada handler recebe `(node, sections, visited, ...)`, retorna `True` se processou o nó (interrompendo o walk), `False` caso contrário.
+
+| Handler | Componente tratado |
+|---|---|
+| `handle_highlight_product` | `highlight-product-component` (banner hero com richtext) |
+| `handle_banner_secondary` | `banner-secondary-container-component` (slick ou slider direto) |
+| `handle_banner_campanha` | `banner--campanha` (banner hero com `banner__text` + CTA) |
+| `handle_slick_cards` | Slick slider com cards de produto |
+| `handle_destaque_banner` | `destaque-banner` (cards com overline + h2/h3 + link) |
+| `handle_tabs_component` | `tabs-component` (abas com steps, FAQ ou side-by-side) |
+| `handle_steps_standalone` | `steps-feature` avulso fora de abas |
+| `handle_faq_container` | `faq-container-component` |
+| `handle_accordion_standalone` | `ul.accordion` avulso fora de faq-container |
+| `handle_teaser` | `photo-text-component` / `.teaser` |
+| `handle_comunicados` | `.comunicados` (bloco de texto rico) |
+| `handle_richtext` | `.richtext` avulso fora de tabs/accordion/teaser |
+| `handle_side_by_side_component` | `.side-by-side-component` |
+| `handle_side_by_side_row` | `.side-by-side.row` (cards com `h4.card-text__title`) |
+| `handle_h2` | `h2` em `div.title` (captura p.body subtítulo inline) |
+| `handle_h3` | `h3` em `div.title` (captura p.body subtítulo inline) |
+| `handle_p_h2` | `p.h2` (heading semântico) |
+| `handle_p_h3` | `p.h3` (heading semântico) |
+| `handle_cross` | `.cross` (cards de cross-sell com overline + p.h3 + span.h4) |
+| `handle_destaque_banner` | `.destaque-banner` |
+| `handle_see_all` | `.see-all-component` / `.vermais` |
+| `handle_acesso_rapido` | `.acesso-rapido` (cards de navegação rápida) |
+| `handle_nav_links` | `.nav-links` (índice de âncoras — links `#` descartados) |
+| `handle_legaltext` | `.legaltext-component` |
+| `handle_end_of_page` | `end-of-page-component` (captura itens com ou sem href válido) |
+| `handle_button_component` | `.button-component` (botões CTA avulsos) |
+| `handle_p_standalone` | `p` avulso fora de containers protegidos |
+
+#### Funções de catálogo e URL
+
+| Função | Descrição |
+|---|---|
 | `fetch_main_content(page, url)` | Playwright: navega e retorna soup do `#main-content` |
 | `extract_meta(soup)` | Extrai título e description da página |
 | `build_url(slug)` | Retorna URL completa a partir do slug |
 | `get_all_slugs()` | Lista todos os slugs do catálogo |
 | `get_slugs_by_category(category)` | Filtra slugs por categoria |
-
----
-
-## Catálogo de páginas (47 páginas)
-
-### ✅ Ativação de Serviços Digitais (14) — extractor pronto
-
-| Slug | Serviço |
-|---|---|
-| `ativacao-amazon-prime` | Amazon Prime |
-| `ativacao-apple-music` | Apple Music |
-| `ativacao-disney-plus` | Disney+ |
-| `ativacao-globoplay` | Globoplay |
-| `ativacao-max` | Max |
-| `ativacao-netflix` | Netflix |
-| `ativacao-premiere` | Premiere |
-| `ativacao-spotify` | Spotify |
-| `ativacao-telecine` | Telecine |
-| `ativacao-vivo-play` | Vivo Play |
-| `ativacao-vivae` | Vivaê |
-| `ativacao-vale-saude` | Vale Saúde |
-| `ativacao-mcafee` | McAfee |
-| `ativacao-ip-fixo-digital` | IP Fixo Digital |
-
-### ✅ Dúvidas — Internet (3) — extractor pronto
-
-| Slug | Página |
-|---|---|
-| `duvidas-internet-wifi` | Internet Vivo Wi-Fi |
-| `duvidas-internet-fibra` | Internet Fibra |
-| `duvidas-internet-vivo-total` | Internet Vivo Total |
-
-### ✅ Dúvidas — TV (4) — extractor pronto
-
-| Slug | Página |
-|---|---|
-| `duvidas-tv-fibra` | TV Fibra |
-| `duvidas-tv-apps-canais` | TV Apps de Canais |
-| `duvidas-tv-assinatura` | TV Assinatura |
-| `duvidas-tv-online` | TV Online |
-
-### ⏭️ Ajuda e Autoatendimento (9) — sem extractor
-
-| Slug | Página |
-|---|---|
-| `app-vivo` | App Vivo |
-| `mais-ajuda` | Mais Ajuda |
-| `encontre-uma-loja` | Encontre uma Loja |
-| `dicas-wifi` | Dicas Wi-Fi |
-| `mudanca-de-endereco` | Mudança de Endereço |
-| `servico-de-instalacao` | Serviço de Instalação |
-| `portabilidade` | Portabilidade |
-| `ativando-o-chip` | Ativando o Chip |
-| `consumo-de-internet` | Consumo de Internet |
-
-### ⏭️ Fatura (7) — sem extractor
-
-| Slug | Página |
-|---|---|
-| `2-via-de-fatura` | 2ª Via de Fatura |
-| `entenda-sua-fatura` | Entenda sua Fatura |
-| `fatura-digital` | Fatura Digital |
-| `debito-automatico` | Débito Automático |
-| `negociacao-de-debitos` | Negociação de Débitos |
-| `pagamento` | Pagamento |
-| `bloqueio-de-linha` | Bloqueio de Linha |
-
-### ⏭️ Vivo Explica (3) — sem extractor
-
-| Slug | Página |
-|---|---|
-| `explica-internet-wifi` | Internet e Wi-Fi |
-| `explica-smartphones-eletronicos` | Smartphones e Eletrônicos |
-| `explica-dicionario-velocidade` | Dicionário de Velocidade da Internet |
-
-### ⏭️ Por que Vivo (4) — sem extractor
-
-| Slug | Página |
-|---|---|
-| `teste-de-velocidade` | Teste de Velocidade |
-| `premios` | Prêmios |
-| `vivo-renova` | Vivo Renova |
-| `vivo-valoriza` | Vivo Valoriza |
-
-### ⏭️ Conteúdos Complementares (3) — sem extractor
-
-| Slug | Página |
-|---|---|
-| `beneficios-vivo-tv` | Benefícios Vivo TV |
-| `apps-inclusos-plano-internet` | Apps Inclusos no Plano de Internet |
-| `vivo-smart-wifi` | Vivo Smart Wi-Fi |
+| `get_categories()` | Lista categorias únicas na ordem do catálogo |
+| `get_entry(slug)` | Retorna o dict completo de uma entrada do catálogo |
 
 ---
 
