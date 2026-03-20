@@ -10,9 +10,10 @@ _CATEGORY_TO_MODULE: dict[str, str] = {
     "Fatura":                        "extractors.fatura",
     "Vivo Explica":                  "extractors.vivo-explica",
     "Por que Vivo":                  "extractors.por-que-vivo",
+    "Conteúdos Complementares":      "extractors.conteudos-complementares",
 }
 
-_FALLBACK_CATEGORIES = {"Conteúdos Complementares"}
+_FALLBACK_CATEGORIES: set[str] = set()  # todas as categorias têm extractor
 
 
 def _load_module(module_name: str):

@@ -48,6 +48,7 @@ PAGE_CATALOG: list[dict] = [
 
 _SLUG_INDEX: dict[str, dict] = {p["slug"]: p for p in PAGE_CATALOG}
 ACTIVATION_PAGES = [p["slug"] for p in PAGE_CATALOG if p["category"] == "Ativação de Serviços Digitais"]
+_H1_BANNER_CLASSES = {"banner__subtitle", "banner__title", "overline"}
 
 
 def build_url(slug: str) -> str:
@@ -213,10 +214,22 @@ def _format_faq_answer(container: Tag, faq_index: int) -> str:
     for child in container.children: process(child)
     buttons_div = container.find("div", class_="accordion__buttons")
     if buttons_div:
+        seen_hrefs: set[str] = set()
         for a in buttons_div.find_all("a", href=True):
+            # Ignorar versão mobile quando a versão desktop já foi processada
+            # (evita duplicação de pares hide-mobile / hide-desktop)
+            if "hide-desktop" in a.get("class", []):
+                continue
             href = _normalize_href(a["href"].strip())
-            text = clean_text(a.get_text())
-            if text and href and not href.startswith("#"): lines.append(f"{text} Link: {href}")
+            if not href or href.startswith("#") or href in seen_hrefs:
+                continue
+            seen_hrefs.add(href)
+            # Texto: preferir o span[hidden] ou title do atributo quando o
+            # conteúdo visível é só SVG
+            text = clean_text(a.get("title") or a.get_text())
+            if text:
+                lines.append(f"{text} Link: {href}")
+
     return "\n".join(lines)
 
 
@@ -240,13 +253,19 @@ def collect_all_accordion_faqs(container: Tag) -> list[dict]:
     return all_items
 
 
+
 def _extract_page_title_section(soup: BeautifulSoup) -> list[dict]:
     h1 = soup.find("h1")
     if not h1:
         return []
+
+    # Ignorar h1 decorativo dentro de banners (ex: vivo-smart-wi-fi onde o h1
+    # tem classes 'overline body-2 banner__subtitle' e não é o título real)
+    h1_classes = set(h1.get("class", []))
+    if h1_classes & _H1_BANNER_CLASSES:
+        return []
+
     blocks = []
-    # Captura p.body que aparece como irmão do h1 dentro do mesmo
-    # container (padrão div.title > div.hgroup > div > h1 + p.body)
     parent = h1.parent
     if parent:
         p_body = parent.find("p", class_="body")
@@ -254,6 +273,7 @@ def _extract_page_title_section(soup: BeautifulSoup) -> list[dict]:
             text = _inline_links(p_body)
             if text:
                 blocks.append({"type": "paragraph", "text": text})
+
     return [{"title": clean_text(h1.get_text()), "blocks": blocks}]
 
 def _extract_steps_from_container(tab_or_section: Tag) -> list[dict]:
@@ -393,8 +413,23 @@ def _extract_card_blocks(card: Tag) -> list[dict]:
         if title_tag: title = clean_text(title_tag.get_text())
         content_div = product.find(class_="product-item__content")
         if content_div:
-            paras = content_div.find_all("p", class_="product-item__text") or content_div.find_all("p")
-            description = " ".join(_inline_links(p) for p in paras if _inline_links(p))
+            parts = []
+            # Preço (product-item__price) — capturar antes da descrição
+            price_p = content_div.find("p", class_="product-item__price")
+            if price_p:
+                # O span.hide contém apenas "R$" duplicado para leitores de tela — ignorar
+                for hidden in price_p.find_all("span", class_="hide"):
+                    hidden.decompose()
+                price_text = clean_text(price_p.get_text())
+                if price_text:
+                    parts.append(price_text)
+            # Descrição (product-item__text ou qualquer p restante)
+            desc_paras = content_div.find_all("p", class_="product-item__text") or \
+                         [p for p in content_div.find_all("p") if "product-item__price" not in p.get("class", [])]
+            desc = " ".join(_inline_links(p) for p in desc_paras if _inline_links(p))
+            if desc:
+                parts.append(desc)
+            description = " ".join(parts)
         btn_wrapper = product.find(class_="product-item__content-btn")
         anchor_pool = btn_wrapper.find_all("a", href=True) if btn_wrapper else [
             a for a in product.find_all("a", href=True)
@@ -570,11 +605,25 @@ def handle_h2(node, sections, visited, is_faq_duplicate=None):
     return True
 
 def handle_h3(node, sections, visited):
-    if node.name != "h3" or id(node) in visited: return False
-    if node.find_parent("div", class_="tabs__content-item"): return False
+    if node.name != "h3" or id(node) in visited:
+        return False
+    if node.find_parent("div", class_="tabs__content-item"):
+        return False
     visited.add(id(node))
     text = clean_text(node.get_text())
-    if text: sections.append({"title": text, "blocks": []})
+    if not text:
+        return True
+    blocks = []
+    # Captura p.body subtítulo inline no mesmo container do h3
+    # (mesmo padrão do handle_h2: div.title > div.hgroup > div > h3 + p.body)
+    parent = node.parent
+    if parent:
+        p_body = parent.find("p", class_="body")
+        if p_body:
+            body_text = _inline_links(p_body)
+            if body_text:
+                blocks.append({"type": "paragraph", "text": body_text})
+    sections.append({"title": text, "blocks": blocks})
     return True
 
 def handle_p_h2(node, sections, visited):
@@ -661,7 +710,10 @@ def handle_cross(node, sections, visited):
         if not href or href.startswith("#"): continue
         content = card_link.find("div", class_="cross__item__content")
         if not content: continue
-        overline, h3, btn_span = content.find("p", class_="overline"), content.find("h3"), content.find("span", class_="h4")
+        overline  = content.find("p", class_="overline")
+        # Subtítulo: <h3> literal OU <p class="h3"> (padrão semântico AEM)
+        h3        = content.find("h3") or content.find("p", class_="h3")
+        btn_span  = content.find("span", class_="h4")
         card_blocks = [b for b in [{"type":"paragraph","text":clean_text(overline.get_text())} if overline else None,
                                     {"type":"paragraph","text":clean_text(h3.get_text())} if h3 else None,
                                     {"type":"paragraph","text":f"{clean_text(btn_span.get_text())} Link: {href}"} if btn_span else None] if b]
@@ -761,6 +813,50 @@ def handle_banner_secondary(node, sections, visited):
             blocks.extend(group)
         append_to_last_section(sections, blocks)
 
+    return True
+
+def handle_banner_campanha(node: "Tag", sections: list, visited: set) -> bool:
+    """
+    Captura o banner hero com classe banner--campanha.
+    Extrai apenas o conteúdo textual útil: banner__text e CTA.
+    Ignora h1/p decorativos com classes banner__subtitle/banner__title.
+    """
+    if "banner--campanha" not in node.get("class", []) or id(node) in visited:
+        return False
+    visited.add(id(node))
+
+    content = node.find("div", class_="banner__content")
+    if not content:
+        return True
+
+    blocks = []
+    _DECORATIVE = {"banner__subtitle", "banner__title", "overline"}
+
+    for child in content.children:
+        from bs4 import Tag as _Tag, NavigableString as _NS
+        if not isinstance(child, _Tag):
+            continue
+        cls = set(child.get("class", []))
+
+        # Pular elementos decorativos (título/subtítulo do banner hero)
+        if cls & _DECORATIVE:
+            continue
+
+        # Texto descritivo (p.banner__text ou p.body)
+        if child.name == "p":
+            text = _inline_links(child)
+            if text:
+                blocks.append({"type": "paragraph", "text": text})
+
+        # Botão CTA (a direto no banner__content)
+        elif child.name == "a" and child.get("href"):
+            href = _normalize_href(child["href"].strip())
+            btn_text = clean_text(child.get("data-label-desktop") or child.get_text())
+            if href and not href.startswith("#") and btn_text:
+                blocks.append({"type": "paragraph", "text": f"{btn_text} Link: {href}"})
+
+    if blocks:
+        append_to_last_section(sections, blocks)
     return True
 
 def handle_highlight_product(node, sections, visited):
