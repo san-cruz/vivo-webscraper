@@ -23,7 +23,9 @@ playwright install chromium
 
 ```
 .
-├── scrapertxt.py              # Script principal — gera os .txt
+├── scrapertxt.py              # Script principal — gera os .txt completos
+├── scrapertxt-faq.py          # Gera .txt somente com blocos de FAQ
+├── scrapertxt-structured.py   # Gera .txt no formato estruturado (ex: canais)
 ├── scrapercsv.py              # Gera .csv (links, textos, tabelas) — só ativações
 ├── requirements.txt
 │
@@ -39,20 +41,24 @@ playwright install chromium
 │   └── conteudos-complementares.py
 │
 └── output/
-    └── txt/
-        ├── ativacao-de-servicos-digitais/
-        ├── duvidas-internet/
-        ├── duvidas-tv/
-        ├── ajuda-e-autoatendimento/
-        ├── fatura/
-        ├── vivo-explica/
-        ├── por-que-vivo/
-        └── conteudos-complementares/
+    ├── outputs-txt/
+    │   ├── ativacao-de-servicos-digitais/
+    │   ├── duvidas-internet/
+    │   ├── duvidas-tv/
+    │   ├── ajuda-e-autoatendimento/
+    │   ├── fatura/
+    │   ├── vivo-explica/
+    │   ├── por-que-vivo/
+    │   └── conteudos-complementares/
+    ├── outputs-txt-faqs/       # Saída do scrapertxt-faq.py
+    └── outputs-txt-structured/ # Saída do scrapertxt-structured.py
 ```
 
 ---
 
 ## Uso — `scrapertxt.py`
+
+Gera arquivos `.txt` completos com todo o conteúdo extraído de cada página.
 
 ```bash
 # Todas as páginas do catálogo
@@ -77,9 +83,131 @@ python scrapertxt.py --list --category "Vivo Explica"
 
 ---
 
-## Formato dos arquivos `.txt`
+## Uso — `scrapertxt-faq.py`
 
-Cada página gera um arquivo em `output/txt/<categoria>/<slug>.txt`.
+Extrai **apenas os blocos de FAQ** de cada página. Se a página não tiver FAQ, registra aviso no console e não gera arquivo.
+
+Filtra automaticamente itens que não são perguntas reais (ex: blocos de "Termos e Condições", "Informações Gerais", "Regulamento"), mesmo que estejam dentro de um `faq-container-component`.
+
+```bash
+# Todas as páginas do catálogo
+python scrapertxt-faq.py
+
+# Slug específico
+python scrapertxt-faq.py duvidas-internet-wifi
+
+# Categoria inteira
+python scrapertxt-faq.py --category "Fatura"
+
+# Listar todos os slugs e URLs disponíveis
+python scrapertxt-faq.py --list
+```
+
+### Formato dos arquivos gerados
+
+Cada página com FAQ gera um arquivo em `output/outputs-txt-faqs/<categoria>/<slug>-faq.txt`.
+
+```
+SEÇÃO: Vivo dúvidas: Wi-Fi
+
+1. Como trocar a senha do Wi-Fi?
+1.1. Acesse o seu navegador e coloque na URL o endereço indicado na etiqueta
+1.2. Entre com o seu login e senha conforme descrito na etiqueta
+1.3. Clique na opção "Configurações", selecione a Rede Wi-Fi
+Conferir mais dicas Link: https://vivo.com.br/para-voce/ajuda/resolva-agora/configuracoes-do-wi-fi
+
+2. Qual frequência tenho no Wi-Fi da Vivo?
+As redes Wi-Fi têm diferentes tipos de frequência, medidas em giga-hertz (GHz).
+- A frequência 5GHz permite alta velocidade, mas tem área de cobertura menor
+- A frequência 2.4 GHz permite uma área de cobertura maior, mas tem menos velocidade
+```
+
+### Itens filtrados (não são FAQ real)
+
+Os títulos de acordeão a seguir são considerados blocos legais/informativos e são excluídos da saída:
+
+- Informações Gerais / Informações Adicionais
+- Preços e Tarifas / Preço e Tarifa
+- Termos e Condições
+- Regulamento
+- Notas
+- Vale Bonus / Vale Bônus
+- Grade de Canais
+
+---
+
+## Uso — `scrapertxt-structured.py`
+
+Gera arquivos `.txt` em **formato estruturado**, otimizado para páginas com múltiplas categorias de produtos, como `canais-adicionais`. O formato inclui cabeçalho, seção "Como Contratar", lista de categorias e campos detalhados por item (Nome, Descrição, Preço, Link).
+
+```bash
+# Todas as páginas do catálogo
+python scrapertxt-structured.py
+
+# Slug específico
+python scrapertxt-structured.py canais-adicionais
+
+# Categoria inteira
+python scrapertxt-structured.py --category "Para Casa — TV"
+
+# Listar todos os slugs e URLs disponíveis
+python scrapertxt-structured.py --list
+```
+
+### Formato dos arquivos gerados
+
+Cada página gera um arquivo em `output/outputs-txt-structured/<categoria>/<slug>-structured.txt`.
+
+```
+================================================================================
+CANAIS ADICIONAIS – COMPLETE SEU PACOTE! | VIVO
+================================================================================
+
+Aproveite os canais adicionais Vivo TV e complemente sua programação.
+
+COMO CONTRATAR:
+- Via Aura, assistente virtual da Vivo
+- Ligue 103 15 e fale com um especialista
+- Pelo aplicativo Meu Vivo
+
+================================================================================
+CATEGORIAS DISPONÍVEIS:
+  Filmes e Séries | Esportes | Adultos | Variedades | Internacionais
+================================================================================
+
+--------------------------------------------------------------------------------
+FILMES E SÉRIES
+--------------------------------------------------------------------------------
+
+MAX
+  Descrição    : Séries, filmes e muito mais com o melhor do entretenimento
+  Preço        : R$ 34,90/mês
+  Link         : https://vivo.com.br/para-voce/produtos-e-servicos/...
+
+...
+
+--------------------------------------------------------------------------------
+ADULTOS
+--------------------------------------------------------------------------------
+
+  AVISO: A página pode conter imagens impróprias para menores de 18 anos.
+  Acesso restrito a maiores de 18 anos.
+  Link de acesso: https://vivo.com.br/...
+
+...
+
+================================================================================
+Atenção
+================================================================================
+Oferta válida para clientes Vivo Fibra. Sujeito a disponibilidade na área.
+================================================================================
+```
+
+---
+
+## Formato dos arquivos `.txt` (scrapertxt.py)
+
+Cada página gera um arquivo em `output/outputs-txt/<categoria>/<slug>.txt`.
 
 ### Páginas de ativação
 
@@ -121,7 +249,7 @@ As redes Wi-Fi têm diferentes tipos de frequência, medidas em giga-hertz (GHz)
 
 ---
 
-## Convenções de formatação
+## Convenções de formatação (scrapertxt.py)
 
 | Elemento | Formato no .txt |
 |---|---|
@@ -229,6 +357,7 @@ Cada handler recebe `(node, sections, visited, ...)`, retorna `True` se processo
 | `handle_legaltext` | `.legaltext-component` |
 | `handle_end_of_page` | `end-of-page-component` (captura itens com ou sem href válido) |
 | `handle_button_component` | `.button-component` (botões CTA avulsos) |
+| `handle_slider_products` | `online-store-container-component` (vitrine de produtos informativos) |
 | `handle_p_standalone` | `p` avulso fora de containers protegidos |
 
 #### Funções de catálogo e URL
