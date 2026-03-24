@@ -3,6 +3,13 @@
 from extractors.base import get_entry, get_all_slugs, get_categories  # noqa: re-export
 
 _CATEGORY_TO_MODULE: dict[str, str] = {
+    "Produtos e Serviços Geral":     "extractors.produtos-servicos-geral",
+    "Para Casa — Internet":          "extractors.para-casa-internet",
+    "Para Casa — Inteligente":       "extractors.para-casa-inteligente",
+    "Para Casa — TV":                "extractors.para-casa-tv",
+    "Combos":                        "extractors.combos",
+    "Serviços Digitais":             "extractors.servicos-digitais",
+    "HUBs de Marcas e Categorias":   "extractors.hubs-marcas-categorias",
     "Ativação de Serviços Digitais": "extractors.ativacao-servicos-digitais",
     "Ajuda e Autoatendimento":       "extractors.ajuda-e-autoatendimento",
     "Dúvidas — Internet":            "extractors.duvidas-internet-tv",

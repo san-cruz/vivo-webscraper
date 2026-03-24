@@ -44,6 +44,52 @@ PAGE_CATALOG: list[dict] = [
     {"slug": "beneficios-vivo-tv", "path": "/para-voce/produtos-e-servicos/para-casa/tv/beneficios-vivo-tv", "category": "Conteúdos Complementares"},
     {"slug": "apps-inclusos-plano-internet", "path": "/para-voce/produtos-e-servicos/servicos-digitais/apps-inclusos-no-plano-de-internet", "category": "Conteúdos Complementares"},
     {"slug": "vivo-smart-wifi", "path": "/para-voce/produtos-e-servicos/para-casa/internet/vivo-smart-wi-fi", "category": "Conteúdos Complementares"},
+    # Para casa - TV
+    {"slug": "para-casa-tv-canais-adicionais","path": "/para-voce/produtos-e-servicos/para-casa/tv/canais-adicionais","category": "Para Casa — TV"},
+    {"slug": "para-casa-tv-vivo-play","path": "/para-voce/produtos-e-servicos/vivo-play","category": "Para Casa — TV"},
+    {"slug": "para-casa-tv","path": "/para-voce/produtos-e-servicos/para-casa/tv","category": "Para Casa — TV"},
+
+    {"slug": "para-casa-tv-vivo-play-stick","path": "/para-voce/produtos-e-servicos/para-casa/tv/vivo-play-stick","category": "Para Casa — TV"},
+    {"slug": "para-casa-tv-canais-adicionais","path": "/para-voce/produtos-e-servicos/para-casa/tv/canais-adicionais","category": "Para Casa — TV"},
+    {"slug": "canais-adicionais-looke","path": "/para-voce/produtos-e-servicos/para-casa/tv/canais-adicionais/looke","category": "Para Casa — TV"},
+    {"slug": "canais-adicionais-universal-plus","path": "/para-voce/produtos-e-servicos/para-casa/tv/canais-adicionais/universal-plus","category": "Para Casa — TV"},
+    {"slug": "canais-adicionais-combate","path": "/para-voce/produtos-e-servicos/para-casa/tv/canais-adicionais/combate","category": "Para Casa — TV"},
+
+    # Para casa - Internet
+    {"slug": "para-casa-internet","path": "/para-voce/produtos-e-servicos/para-casa/internet","category": "Para Casa — Internet"},
+    {"slug": "para-casa-apps-de-conteudo","path": "/para-voce/produtos-e-servicos/para-casa/internet/planos-de-internet-vivo-fibra/apps-de-conteudo","category": "Para Casa — Internet"},
+    {"slug": "para-casa-internet-netflix","path": "/para-voce/produtos-e-servicos/para-casa/internet/internet-netflix","category": "Para Casa — Internet"},
+    {"slug": "para-casa-internet-globoplay","path": "/para-voce/produtos-e-servicos/para-casa/internet/internet-globoplay","category": "Para Casa — Internet"},
+    {"slug": "para-casa-internet-disney-plus","path": "/para-voce/produtos-e-servicos/para-casa/internet/internet-disney-plus","category": "Para Casa — Internet"},
+    {"slug": "para-casa-vivo-fibra-game","path": "/para-voce/produtos-e-servicos/para-casa/internet/vivo-fibra-game","category": "Para Casa — Internet"},
+    {"slug": "para-casa-kit-wi-fi-6","path": "/para-voce/produtos-e-servicos/para-casa/internet/kit-wi-fi-6","category": "Para Casa — Internet"},
+    {"slug": "para-casa-vivo-fibra-ultravelocidades","path": "/para-voce/produtos-e-servicos/para-casa/internet/vivo-fibra-ultravelocidades","category": "Para Casa — Internet"},
+    {"slug": "para-casa-vivo-casa-5g","path": "/para-voce/produtos-e-servicos/para-casa/vivo-casa-5g","category": "Para Casa — Internet"},
+
+    # Para Casa — Casa Inteligente
+    {"slug": "casa-inteligente-automonitoramento","path": "/para-voce/produtos-e-servicos/para-casa/casa-inteligente/automonitoramento","category": "Para Casa — Inteligente"},
+
+    # Combos
+    {"slug": "combos-vivo-total","path": "/para-voce/produtos-e-servicos/combos/vivo-total","category": "Combos"},
+    {"slug": "combos-vivo-total-v","path": "/para-voce/produtos-e-servicos/combos/vivo-total/vivo-total-v","category": "Combos"},
+
+    # Produtos e Serviços Geral
+    {"slug": "produtos-servicos-geral","path": "/para-voce/produtos-e-servicos","category": "Produtos e Serviços Geral"},
+    {"slug": "produtos-servicos-escolha-seus-produtos","path": "/para-voce/produtos-e-servicos/escolha-seus-produtos","category": "Produtos e Serviços Geral"},
+
+    # Serviços Digitais
+    {"slug": "servicos-digitais-amazon-prime","path": "/para-voce/produtos-e-servicos/servicos-digitais/amazon-prime","category": "Serviços Digitais"},
+    {"slug": "servicos-digitais-max","path": "/para-voce/produtos-e-servicos/servicos-digitais/max","category": "Serviços Digitais"},
+    {"slug": "servicos-digitais-globoplay","path": "/para-voce/produtos-e-servicos/servicos-digitais/globoplay","category": "Serviços Digitais"},
+    {"slug": "servicos-digitais-netflix","path": "/para-voce/produtos-e-servicos/servicos-digitais/netflix","category": "Serviços Digitais"},
+    {"slug": "servicos-digitais-disney-plus","path": "/para-voce/produtos-e-servicos/servicos-digitais/disney-plus","category": "Serviços Digitais"},
+    {"slug": "servicos-digitais-spotify","path": "/para-voce/produtos-e-servicos/servicos-digitais/spotify","category": "Serviços Digitais"},
+    {"slug": "servicos-digitais-vivo-play-app","path": "/para-voce/produtos-e-servicos/servicos-digitais/vivo-play-app","category": "Serviços Digitais"},
+
+    # HUBs de Marcas e Categorias
+    {"slug": "hubs-marcas-smartphones-eletronicos","path": "/para-voce/produtos-e-servicos/smartphones-e-eletronicos","category": "HUBs de Marcas e Categorias"},
+    {"slug": "hubs-marcas-vivo-gaming","path": "/para-voce/produtos-e-servicos/vivo-gaming","category": "HUBs de Marcas e Categorias"},
+
 ]
 
 _SLUG_INDEX: dict[str, dict] = {p["slug"]: p for p in PAGE_CATALOG}
@@ -492,10 +538,27 @@ def handle_nav_links(node, sections):
     if blocks: append_to_last_section(sections, blocks)
     return True
 
-def handle_legaltext(node, sections):
-    if "legaltext-component" not in node.get("class",[]): return False
-    blocks = [{"type":"paragraph","text":_inline_links(p)} for p in node.find_all("p") if _inline_links(p)]
-    if blocks: append_to_last_section(sections, blocks)
+def handle_legaltext(node, sections, page_url: str = ""):
+    if "legaltext-component" not in node.get("class", []):
+        return False
+    blocks = []
+    for p in node.find_all("p"):
+        # Usar _inline_links mas depois repor links âncora (#) que foram descartados,
+        # construindo a URL completa como page_url + "#"
+        text = _inline_links(p)
+        if not text:
+            continue
+        # Verificar se havia um link âncora (#) que _inline_links descartou
+        anchor = p.find("a", href=lambda h: h and h.strip() == "#")
+        if anchor and page_url and "Link:" not in text:
+            # Reconstituir: texto do link + URL completa
+            anchor_text = clean_text(anchor.get_text())
+            full_url = page_url.rstrip("/") + "#"
+            # Substituir o texto simples pelo texto com link
+            text = text.replace(anchor_text, f"{anchor_text} Link: {full_url}")
+        blocks.append({"type": "paragraph", "text": text})
+    if blocks:
+        append_to_last_section(sections, blocks)
     return True
 
 def handle_acesso_rapido(node, sections, page_url=""):
@@ -657,27 +720,52 @@ def handle_steps_standalone(node, sections, visited):
     return True
 
 def handle_destaque_banner(node, sections, visited):
-    if "destaque-banner" not in node.get("class",[]) or id(node) in visited: return False
+    if "destaque-banner" not in node.get("class", []) or id(node) in visited:
+        return False
     visited.add(id(node))
+
     card_groups = []
     for item in node.find_all("div", class_="destaque-banner__item"):
         link_tag = item.find("a", class_="banner__link")
-        if not link_tag or not link_tag.get("href"): continue
-        href = _normalize_href(link_tag["href"].strip())
-        if not href or href.startswith("#"): continue
+        if not link_tag:
+            continue
+
+        # href pode ser vazio (ex: canais adultos sem link) — aceitar sem link
+        raw_href = (link_tag.get("href") or "").strip()
+        href = _normalize_href(raw_href) if raw_href and not raw_href.startswith("#") else ""
+
         content = item.find("div", class_="destaque-banner__item__content")
-        if not content: continue
+        if not content:
+            continue
+
         overline_tag = content.find("p", class_="overline")
-        h3_tag       = content.find("h3") or content.find(class_="h3")  
-        btn_span     = content.find("span", class_="h4")
-        card_blocks = [b for b in [{"type":"paragraph","text":clean_text(overline_tag.get_text())} if overline_tag else None,
-                                    {"type":"paragraph","text":clean_text(h3_tag.get_text())} if h3_tag else None,
-                                    {"type":"paragraph","text":f"Link: {href}"}] if b]
-        if card_blocks: card_groups.append(card_blocks)
-    if not card_groups: return True
+
+        # Título: <h3> literal OU qualquer heading com classe "h3"
+        h3_tag = content.find("h3") or content.find(class_="h3")
+
+        # Preço: span.h4 pode estar diretamente no content ou dentro de ul > li
+        btn_span = content.find("span", class_="h4")
+
+        card_blocks = [b for b in [
+            {"type": "paragraph", "text": clean_text(overline_tag.get_text())} if overline_tag else None,
+            {"type": "paragraph", "text": clean_text(h3_tag.get_text())}       if h3_tag      else None,
+            # Preço (span.h4 com "R$") — extraído sem o SVG filho
+            {"type": "paragraph", "text": clean_text(
+                btn_span.get_text())} if btn_span and "R$" in btn_span.get_text() else None,
+            # Link — só quando há href válido
+            {"type": "paragraph", "text": f"Link: {href}"}                     if href        else None,
+        ] if b]
+
+        if card_blocks:
+            card_groups.append(card_blocks)
+
+    if not card_groups:
+        return True
+
     blocks = []
     for i, group in enumerate(card_groups):
-        if i > 0: blocks.append({"type":"blank"})
+        if i > 0:
+            blocks.append({"type": "blank"})
         blocks.extend(group)
     append_to_last_section(sections, blocks)
     return True
@@ -915,6 +1003,36 @@ def handle_p_standalone(node, sections, extra_protected_parents=()):
     if text: append_to_last_section(sections, [{"type":"paragraph","text":text}])
     return True
 
+def handle_slider_products(node: Tag, sections: list, visited: set) -> bool:
+    """
+    Extrai online-store-container-component com estrutura slider-products
+    (cards em div.online-store-component > div.product-item, sem slick-slide).
+    Usar nos extractors que devem capturar esse conteúdo.
+    Para bloquear (ex: vitrines com preços), use handle_online_store em vez disso.
+    """
+    if "online-store-container-component" not in node.get("class", []) or id(node) in visited:
+        return False
+    visited.add(id(node))
+
+    card_groups = []
+    for item in node.find_all("div", class_="online-store-component"):
+        pi = item.find("div", class_="product-item")
+        if not pi:
+            continue
+        blocks = _extract_card_blocks(pi)
+        if blocks:
+            card_groups.append(blocks)
+
+    if not card_groups:
+        return True
+
+    result = []
+    for i, group in enumerate(card_groups):
+        if i > 0:
+            result.append({"type": "blank"})
+        result.extend(group)
+    append_to_last_section(sections, result)
+    return True
 
 # ── Extratores para CSV ─────────────────────────────────────────────────────
 
